@@ -75,7 +75,7 @@
                                 </div>
                                 {{-- If some amount is there then only add payment  --}}
                                 @if ($totalAmount > 0)
-                                    <form action="{{ route('bill.update', $paymentData->id) }}" method="post">
+                                    <form action="{{ route('bill.update', $paymentData->id) }}" method="post" id="payment-form">
                                         <div class="row px-3">
                                             @csrf
                                             @method('PUT')
@@ -85,8 +85,8 @@
                                                 <input type="number" name="amount" class="form-control">
                                             </div>
                                             <div class="col-6 mb-3">
-                                                <label for="amount">Payment Method</label>
-                                                <select class="form-select" name="type">
+                                                <label for="type">Payment Method</label>
+                                                <select class="form-select" name="type" id="type">
                                                     <option selected>Select method</option>
                                                     <option value="cash">CASH</option>
                                                     <option value="upi">UPI </option>
@@ -94,8 +94,8 @@
                                             </div>
 
                                             <div class="col-6 mb-3">
-                                                <label for="amount">Payment Month</label>
-                                                <select class="form-select" name="month">
+                                                <label for="month">Payment Month</label>
+                                                <select class="form-select" name="month" id="month">
                                                     <option selected>Select Month</option>
                                                     <option value="January">January</option>
                                                     <option value="February">February</option>
@@ -162,7 +162,10 @@
     </div>
 @endsection
 
+
 @push('scripts')
+    {!! $validator->selector('#payment-form') !!} 
+
     <script>
         function downloadRecipt() {
             var selectedId = $('#recipt_month').val();

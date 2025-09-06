@@ -230,17 +230,14 @@ class StudentAttendanceController extends Controller
     public function create(string $id)
     {
         $userData = User::find($id);
+        
+        // $today = Carbon::today()->toDateString();
+        // $todayAttendanceDoneMealIds = StudentAttendance::where('student_id', $id)->where('date', $today)->pluck('meal_id');
+        $mealData =  MealPrice::get();
 
-        $today = Carbon::today()->toDateString();
-        $todayAttendanceDoneMealIds = StudentAttendance::where('student_id', $id)->where('date', $today)->pluck('meal_id');
-
-        $mealDataQuery = new MealPrice();
-
-        if (count($todayAttendanceDoneMealIds) > 0) {
-            $mealDataQuery = $mealDataQuery->whereNotIn('id', $todayAttendanceDoneMealIds);
-        }
-
-        $mealData = $mealDataQuery->get();
+        // if (count($todayAttendanceDoneMealIds) > 0) {
+        //     $mealDataQuery = $mealDataQuery->whereNotIn('id', $todayAttendanceDoneMealIds);
+        // }
 
         $extraItems = Menus::where('is_extra', '1')->get();
 
@@ -276,6 +273,32 @@ class StudentAttendanceController extends Controller
         $attendanceDate = isset($input['date']) ? $input['date'] : now()->format('Y-m-d');
 
 
+        $checkingPaymentAlreadyDone = StudentAttendance::select('date')->where('student_id', $input['user_id'])->where('is_paid',1)->orderBy('date','DESC')->first();
+        if(!empty($checkingPaymentAlreadyDone)){
+            if($checkingPaymentAlreadyDone->date != null){
+                $lastPaymentDate   = Carbon::parse($checkingPaymentAlreadyDone->date); 
+                $newAttedanceDate = Carbon::parse($attendanceDate);
+                $resultEndDate = $lastPaymentDate->lt($newAttedanceDate);
+                if($resultEndDate){
+                    if ($isDirectAttedance) {
+                        return response()->json(['message' => 'Payemnt Already Done for Selected Dates']);
+                    }
+                        return redirect()->back()->with('error', 'Payemnt Already Done for Selected Dates!');
+                    }
+            }
+
+        }
+        
+
+        $checkingAlreadyAttendaceThere = StudentAttendance::where('student_id', $input['user_id'])->where('date',$attendanceDate)->where('meal_id',$input['meal_id'])->exists();
+        
+        if($checkingAlreadyAttendaceThere){
+            if ($isDirectAttedance) {
+                return response()->json(['message' => 'Attendance Already Done!']);
+            }
+            return redirect()->back()->with('error', 'Attendance Already Done!');
+        }
+
         $mealPrice = MealPrice::select('price')->where('id', $input['meal_id'])->first();
         $mealValue = $mealPrice->price;
         $extraValue = 0;
@@ -309,7 +332,6 @@ class StudentAttendanceController extends Controller
             'extra_meal_id' => !empty($extraItemIdArray) ? json_encode($extraItemIdArray) : null,
             'date' => $attendanceDate
         ];
-
         $addAttendance = StudentAttendance::create($data);
 
         $paymentAmount = 0;
@@ -323,9 +345,9 @@ class StudentAttendanceController extends Controller
             $paymentEndDate    = $payment->end_date;
             $paymentStartDate  = $payment->start_date;
 
-            $inputDate = Carbon::parse($attendanceDate); // example input date
-            $storeEndDate = Carbon::parse($paymentEndDate); // example stored date
-            $storeStartDate = Carbon::parse($paymentStartDate); // example stored date
+            $inputDate      = Carbon::parse($attendanceDate); 
+            $storeEndDate   = Carbon::parse($paymentEndDate); 
+            $storeStartDate = Carbon::parse($paymentStartDate);
 
             $resultEndDate = $inputDate->gt($storeEndDate);
 
@@ -476,11 +498,11 @@ class StudentAttendanceController extends Controller
 
             foreach ($attendances as $attendance) {
                 // Basic user & meal info with safe null checks
-                $fullName = $attendance->user->full_name ?? 'N/A';
+                $fullName  = $attendance->user->full_name ?? 'N/A';
                 $canteenId = $attendance->user->canteen_id ?? 'N/A';
-                $mealName = $attendance->meal->name ?? 'N/A';
-                $amount = $attendance->amount;
-                $date = $attendance->date;
+                $mealName  = $attendance->meal->name ?? 'N/A';
+                $amount    = $attendance->amount;
+                $date      = $attendance->date;
 
                 $extraAmount = $attendance->extra_amount;
 

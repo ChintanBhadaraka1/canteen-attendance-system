@@ -14,6 +14,8 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use JsValidator;
+
 
 
 class PaymentController extends Controller
@@ -21,6 +23,11 @@ class PaymentController extends Controller
     /**
      * Display a listing of the resource.
      */
+    protected $validationRules =[
+        'amount' => ['required','numeric'],
+        'type' =>  ['required', 'in:cash,upi'],
+        'month' => ['required','in:January,February,March,April,May,June,July,August,September,October,November,December'],
+    ];
     public function index()
     {
         return view('Bill.index');
@@ -152,6 +159,7 @@ class PaymentController extends Controller
         $data['paymentData'] = $query;
         $data['studentId'] = $studentId;
         $data['reciptsData'] = $paymentReciptData;
+        $data['validator'] =  JsValidator::make($this->validationRules);
 
         return view('Bill.edit', $data);
     }
@@ -161,9 +169,9 @@ class PaymentController extends Controller
      */
     public function update(Request $request, Payment $payment)
     {
-        $validator = Validator::make($request->all(), [
-            'amount' => 'required|numeric',
-        ]);
+        
+        $validator = Validator::make($request->all(),$this->validationRules);
+            
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
         }
@@ -184,8 +192,6 @@ class PaymentController extends Controller
         $paymentStartDate = $payment->start_date;
         $paymentEndDate   = $payment->end_date;
 
-
-
         $newAdvanceAmount = 0;
         $newPendingAmount = 0;
         $totalAmountPaidByStudent = 0;
@@ -205,7 +211,8 @@ class PaymentController extends Controller
         if ($newPendingAmount > 0 || $newAdvanceAmount > 0) {
 
             StudentAttendance::where('student_id',$studentId)
-                                ->whereDate('date',[$paymentStartDate,$paymentEndDate])
+                                ->whereDate('date', '>=', $paymentStartDate)
+                                ->whereDate('date', '<=', $paymentEndDate)
                                 ->update(['is_paid'=>1]);
           
             $payment->update([
@@ -228,7 +235,8 @@ class PaymentController extends Controller
         } else {
 
             StudentAttendance::where('student_id',$studentId)
-                                ->whereDate('date',[$paymentStartDate,$paymentEndDate])
+                                ->whereDate('date', '>=', $paymentStartDate)
+                                ->whereDate('date', '<=', $paymentEndDate)
                                 ->update(['is_paid'=>1]);
 
             $payementHistory = PaymentHistory::create([

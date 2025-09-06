@@ -19,6 +19,17 @@
 
                         <input type="hidden" value="{{ $user->id }}" name="user_id">
 
+                        <div class="row">
+                            <div class="col-3">
+                                <div class="mb-3">
+                                    <div class="form-group">
+                                        <label for="date">Date </label>
+                                        <input type="text" id="date" class="form-control" name="date">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Meals Selection -->
                         <div class="mb-4">
                             <h5>Select Meal</h5>
@@ -40,7 +51,6 @@
 
                                     </div>
                                 @endforeach
-
 
                             </div>
                         </div>
@@ -93,22 +103,21 @@
                         </div>
                     </form>
                 @else
-                <div class="row text-center justify-content-center mb-2">
+                    <div class="row text-center justify-content-center mb-2">
 
-                    <div class="col-6">
-                        <input type="radio" class="btn-check " name="meal_id"
-                             autocomplete="off" hidden>
-                        <label
-                            class="card h-100 btn btn-outline-primary d-flex flex-column justify-content-center align-items-center p-3"
-                             style="cursor: pointer; user-select: none;">
-                            <div class="card-body text-center">
-                                <h5 class="card-title">Today Attendance Is Already Done</h5>
-                                
-                            </div>
-                        </label>
+                        <div class="col-6">
+                            <input type="radio" class="btn-check " name="meal_id" autocomplete="off" hidden>
+                            <label
+                                class="card h-100 btn btn-outline-primary d-flex flex-column justify-content-center align-items-center p-3"
+                                style="cursor: pointer; user-select: none;">
+                                <div class="card-body text-center">
+                                    <h5 class="card-title">Today Attendance Is Already Done</h5>
 
+                                </div>
+                            </label>
+
+                        </div>
                     </div>
-                </div>
                 @endif
             </div>
         </div>
@@ -149,6 +158,18 @@
                 var $input = $('#' + inputId);
                 var val = parseInt($input.val()) || 0;
                 $input.val(val + 1);
+            });
+
+            $('#date').daterangepicker({
+                singleDatePicker: true, // only one date selection
+                showDropdowns: true, // optional (year/month dropdown)
+                maxDate: moment(), // restrict max to today
+                startDate: moment(), // default selected date = today
+                locale: {
+                    format: 'YYYY-MM-DD'
+                }
+            }, function(start, end, label) {
+                console.log('Date selected: ' + start.format('YYYY-MM-DD'));
             });
         });
 
