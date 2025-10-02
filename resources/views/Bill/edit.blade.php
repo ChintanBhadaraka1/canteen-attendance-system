@@ -1,5 +1,11 @@
 @php
     $totalAmount = $paymentData->amount + $paymentData->pending_amount - $paymentData->advance_amount;
+    if($totalAmount > 0){
+        $isAdvance = false;
+    }
+    else{
+        $isAdvance = true;
+    }
 @endphp
 @extends('Layout.common-layout')
 
@@ -58,11 +64,13 @@
                                                 <h5 class="card-title">Pending Total Amount Of Students</h5>
                                                 <p class="card-text">
                                                 <p class="p-0">
-                                                    @if ($totalAmount > 0)
+                                                    @if ($totalAmount > 0 )
                                                         <span>Total amount = (all meal amount + pending amount) - advance
                                                             amount
                                                         </span>
                                                         {{ $totalAmount }}
+                                                    @elseif($totalAmount < 0 && $isAdvance)
+                                                      <span>Advance Amount : {{ abs($totalAmount) }} </span>  
                                                     @else
                                                         There is not any pending amount there
                                                     @endif

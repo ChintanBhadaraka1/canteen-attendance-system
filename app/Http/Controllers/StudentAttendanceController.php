@@ -272,13 +272,13 @@ class StudentAttendanceController extends Controller
 
         $attendanceDate = isset($input['date']) ? $input['date'] : now()->format('Y-m-d');
 
-
+        // checking payment already done for selected date 
         $checkingPaymentAlreadyDone = StudentAttendance::select('date')->where('student_id', $input['user_id'])->where('is_paid',1)->orderBy('date','DESC')->first();
         if(!empty($checkingPaymentAlreadyDone)){
             if($checkingPaymentAlreadyDone->date != null){
                 $lastPaymentDate   = Carbon::parse($checkingPaymentAlreadyDone->date); 
                 $newAttedanceDate = Carbon::parse($attendanceDate);
-                $resultEndDate = $lastPaymentDate->lt($newAttedanceDate);
+                $resultEndDate = $newAttedanceDate->lt($lastPaymentDate);
                 if($resultEndDate){
                     if ($isDirectAttedance) {
                         return response()->json(['message' => 'Payemnt Already Done for Selected Dates']);
@@ -289,7 +289,7 @@ class StudentAttendanceController extends Controller
 
         }
         
-
+        // checking attendance already done for student or not for selected date
         $checkingAlreadyAttendaceThere = StudentAttendance::where('student_id', $input['user_id'])->where('date',$attendanceDate)->where('meal_id',$input['meal_id'])->exists();
         
         if($checkingAlreadyAttendaceThere){
@@ -299,11 +299,13 @@ class StudentAttendanceController extends Controller
             return redirect()->back()->with('error', 'Attendance Already Done!');
         }
 
+        // get the meal price using selected meal id
         $mealPrice = MealPrice::select('price')->where('id', $input['meal_id'])->first();
         $mealValue = $mealPrice->price;
         $extraValue = 0;
         $extraItemIdArray = [];
 
+        // if extra items there then add there price also
         if (isset($input['include_extra']) && $input['include_extra'] === 'yes') {
             $extraIteamArray = $input['extra_items'];
             $slugArray = array_keys($extraIteamArray);
@@ -326,9 +328,9 @@ class StudentAttendanceController extends Controller
 
         $data = [
             'student_id' => $input['user_id'],
-            'meal_id' => $input['meal_id'],
-            'amount' => $mealValue,             // keep as float/decimal if DB is decimal
-            'extra_amount' => $extraValue,
+            'meal_id'    => $input['meal_id'],
+            'amount'     => $mealValue,             // keep as float/decimal if DB is decimal
+            'extra_amount'  => $extraValue,
             'extra_meal_id' => !empty($extraItemIdArray) ? json_encode($extraItemIdArray) : null,
             'date' => $attendanceDate
         ];

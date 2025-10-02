@@ -1,7 +1,7 @@
 @extends('Layout.common-layout')
 
 @section('main-content')
-    <div class="contanier ">
+    <div class="contanier">
         <div class="row ">
             <div class="col-12 col-md-4 col-lg-4">
                 <div class="card p-0">

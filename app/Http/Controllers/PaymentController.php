@@ -54,7 +54,7 @@ class PaymentController extends Controller
         $search = $request->input('search.value'); // search input value
 
         // Base query
-        $query = Payment::select('id', 'student_id', 'amount')->with([
+        $query = Payment::select('id', 'student_id', 'amount','pending_amount','advance_amount')->with([
             'user' => function ($query) {
                 $query->select(['id', 'name', 'middle_name', 'last_name', 'collage_name', 'canteen_id']);
             }
@@ -93,12 +93,20 @@ class PaymentController extends Controller
         $data = [];
         if (!empty($userPayments)) {
             foreach ($userPayments as $payment) {
+                $totalAmount = 0;
+                $totalAmount = ($payment->amount + $payment->pending_amount)  - $payment->advance_amount;
+                if($totalAmount < 0){
+                    $amount = abs($totalAmount)."(Advance)";
+                }
+                else{
+                    $amount = $totalAmount;
+                }
                 $action = view('Bill.list_action', ['id' => $payment->student_id])->render();
                 $nestedData = [];
                 $nestedData['sr_no'] = $counter;
                 $nestedData['name'] = isset($payment->user) ? $payment->user->full_name : "";
                 $nestedData['canteen_id'] = isset($payment->user) ? $payment->user->canteen_id : " ";
-                $nestedData['amount'] = $payment->amount;
+                $nestedData['amount'] = $amount;
                 $nestedData['action'] = $action;
                 $data[] = $nestedData;
                 if ($orderDir === 'asc') {
@@ -189,8 +197,8 @@ class PaymentController extends Controller
         $pendingAmount = $payment->pending_amount ?? 0;
         $advanceAmount = $payment->advance_amount ?? 0;
 
-        $paymentStartDate = $payment->start_date;
-        $paymentEndDate   = $payment->end_date;
+        $paymentStartDate = Carbon::parse($payment->start_date)->format('Y-m-d');
+        $paymentEndDate = Carbon::parse($payment->end_date)->format('Y-m-d');
 
         $newAdvanceAmount = 0;
         $newPendingAmount = 0;
@@ -207,12 +215,12 @@ class PaymentController extends Controller
         } else {
             $newPendingAmount = abs($currentPayableAmount);
         }
-
+                   
         if ($newPendingAmount > 0 || $newAdvanceAmount > 0) {
 
             StudentAttendance::where('student_id',$studentId)
-                                ->whereDate('date', '>=', $paymentStartDate)
-                                ->whereDate('date', '<=', $paymentEndDate)
+                                ->where('date', '>=', $paymentStartDate)
+                                ->where('date', '<=', $paymentEndDate)
                                 ->update(['is_paid'=>1]);
           
             $payment->update([
