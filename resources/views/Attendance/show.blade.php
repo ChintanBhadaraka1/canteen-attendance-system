@@ -211,8 +211,8 @@
                 stopLoader();
         });
 
-        $('.delete-attendance').on('click', function() {
-            var attedanceId = $(this).data('id');
+        $('#specific-student-attedance-table').on('click', '.delete-attendance', function() {
+            var attedanceId = $(this).val();
             var moduleName = "Attedance";
 
             confirmDelete(moduleName, function() {

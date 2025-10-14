@@ -98,10 +98,10 @@ class StudentAttendanceController extends Controller
                     ->where('date', $today)
                     ->where('meal_id', (int) $mealId)->exists();
 
-
                 $action = view('Attendance.list_actions', ['id' => $user->id, 'meal_id' => $mealId, 'already_there' => $todayAttendanceExists])->render();
 
                 $nestedData = [];
+                $nestedData['sr_no'] = $counter;
                 $nestedData['canteen_id'] = $user->canteen_id;
                 $nestedData['name'] = $user->full_name;
                 $nestedData['canteen_id'] = $user->canteen_id;
@@ -198,14 +198,15 @@ class StudentAttendanceController extends Controller
         $data = [];
         if (!empty($attendances)) {
             foreach ($attendances as $attendance) {
-
+                $attendanceData['id'] = $attendance->id;
+                $action = ($attendance->is_paid == 0) ?  view('Attendance.specific_list_action',$attendanceData)->render() : "Payment Done" ;
                 $nestedData = [];
-                $nestedData['id'] = $attendance->id;
+                $nestedData['id'] = $counter;
                 $nestedData['date'] = $attendance->date;
                 $nestedData['meal_name'] = $attendance->meal->name;
                 $nestedData['amount'] = $attendance->amount;
                 $nestedData['extra_amount'] = $attendance->extra_amount;
-                $nestedData['action'] = ($attendance->is_paid == 0) ?"Heloo" :"Done" ;
+                $nestedData['action'] = $action ;
                 $data[] = $nestedData;
                 if ($orderDir === 'asc') {
                     $counter++;
@@ -689,6 +690,5 @@ class StudentAttendanceController extends Controller
             ], 500);
         }
 
-        dd($request->all());
     }
 }

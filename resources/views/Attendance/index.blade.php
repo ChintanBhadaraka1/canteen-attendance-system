@@ -24,6 +24,7 @@
                 <table id="student-table" class="table table-striped" style="width:100%;">
                     <thead>
                         <tr>
+                            <th class="text-start">Sr No.</th>
                             <th class="text-start">Canteen Id</th>
                             <th class="text-start">Student Name</th>
                             <th class="text-start">Collage Name</th>
@@ -76,7 +77,14 @@
                         d.meal_id = $('#meal-select').val() || null;
                     }
                 },
-                columns: [{
+                columns: [
+                    {
+                        data: 'sr_no',
+                        name: 'sr_no',
+                        orderable: false,
+                        searchable: false
+                    },
+                    {
                         data: 'canteen_id',
                         name: 'canteen_id'
                     },
@@ -96,7 +104,7 @@
                     }
                 ],
                 order: [
-                    [0, 'desc']
+                    [1, 'desc']
                 ]
             });
 
