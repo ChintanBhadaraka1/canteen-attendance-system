@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Payment;
+use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
 use App\Models\MealPrice;
 use App\Models\PaymentHistory;
@@ -14,12 +15,13 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use JsValidator;
-
+use Inertia\Inertia;
 
 
 class PaymentController extends Controller
 {
+    use ListsRecords;
+
     /**
      * Display a listing of the resource.
      */
@@ -28,127 +30,32 @@ class PaymentController extends Controller
         'type' =>  ['required', 'in:cash,upi'],
         'month' => ['required','in:January,February,March,April,May,June,July,August,September,October,November,December'],
     ];
-    public function index()
+    public function index(Request $request)
     {
-        return view('Bill.index');
-    }
+        $filters = $this->listParams($request, ['name', 'canteen_id', 'balance'], 'name');
+        $show = $this->text($request, 'show');
+        $filters['show'] = in_array($show, ['due', 'advance', 'clear'], true) ? $show : '';
 
-    public function list(Request $request)
-    {
+        $query = Payment::join('users', 'users.id', '=', 'payments.student_id')->select(
+            'payments.id', 'payments.student_id', 'payments.amount', 'payments.pending_amount', 'payments.advance_amount',
+            'users.name', 'users.middle_name', 'users.last_name', 'users.canteen_id', 'users.profile_pic'
+        );
+        $this->searchIn($query, ['users.name', 'users.middle_name', 'users.last_name', 'users.canteen_id'], $filters['search']);
 
-        $columns = ['id', 'users.name', 'users.canteen_id'];
-
-        $length = $request->input('length');       // number of records per page
-        $start = $request->input('start');         // offset
-
-        $orderInput = $request->input('order');
-        if (isset($orderInput[0]['column']) && isset($orderInput[0]['dir'])) {
-            $orderColumnIndex = (int)$orderInput[0]['column'];
-            $orderColumn = $columns[$orderColumnIndex];
-            $orderDir = $orderInput[0]['dir'] === 'desc' ? 'desc' : 'asc';
-        } else {
-            // Default order
-            $orderColumn = 'id';
-            $orderDir = 'asc';
+        if ($filters['show'] !== '') {
+            $sign = ['due' => '>', 'advance' => '<', 'clear' => '='][$filters['show']];
+            $query->whereRaw(Payment::BALANCE . " $sign 0");
         }
-        $search = $request->input('search.value'); // search input value
 
-        // Base query
-        $query = Payment::select('id', 'student_id', 'amount','pending_amount','advance_amount')->with([
-            'user' => function ($query) {
-                $query->select(['id', 'name', 'middle_name', 'last_name', 'collage_name', 'canteen_id']);
-            }
+        $sort = ['name' => 'users.name', 'canteen_id' => 'users.canteen_id', 'balance' => Payment::BALANCE][$filters['sort']];
+        $query->orderByRaw("$sort {$filters['dir']}")->orderBy('payments.id');
+
+        return Inertia::render('Bills/Index', [
+            'bills' => $this->pageOf($query)->through(fn ($bill) => $bill->only(
+                'id', 'student_id', 'name', 'middle_name', 'last_name', 'canteen_id', 'profile_pic', 'balance'
+            )),
+            'filters' => $filters,
         ]);
-
-        // Apply search filter if not empty
-        if (!empty($search)) {
-            $query->where(function ($q) use ($search) {
-                $q->where('amount', 'like', "%{$search}%")
-                    ->orWhereHas('user', function ($uq) use ($search) {
-                        $uq->where('name', 'like', "%{$search}%")
-                            ->orWhere('middle_name', 'like', "%{$search}%")
-                            ->orWhere('last_name', 'like', "%{$search}%")
-                            ->orWhere('canteen_id', 'like', "%{$search}%")
-                            ->orWhere('collage_name', 'like', "%{$search}%");
-                    });
-            });
-        }
-
-
-
-        $totalFiltered = $query->count();
-
-        // Apply ordering, pagination
-        $userPayments = $query->orderBy($orderColumn, $orderDir)
-            ->offset($start)
-            ->limit($length)
-            ->get();
-
-        if ($orderDir === 'asc') {
-            $counter = $start + 1;
-        } else {
-            $counter = $totalFiltered - $start;
-        }
-
-        $data = [];
-        if (!empty($userPayments)) {
-            foreach ($userPayments as $payment) {
-                $totalAmount = 0;
-                $totalAmount = ($payment->amount + $payment->pending_amount)  - $payment->advance_amount;
-                if($totalAmount < 0){
-                    $amount = abs($totalAmount)."(Advance)";
-                }
-                else{
-                    $amount = $totalAmount;
-                }
-                $action = view('Bill.list_action', ['id' => $payment->student_id])->render();
-                $nestedData = [];
-                $nestedData['sr_no'] = $counter;
-                $nestedData['name'] = isset($payment->user) ? $payment->user->full_name : "";
-                $nestedData['canteen_id'] = isset($payment->user) ? $payment->user->canteen_id : " ";
-                $nestedData['amount'] = $amount;
-                $nestedData['action'] = $action;
-                $data[] = $nestedData;
-                if ($orderDir === 'asc') {
-                    $counter++;
-                } else {
-                    $counter--;
-                }
-            }
-        }
-
-        $json_data = [
-            "draw" => intval($request->input('draw')), // for security
-            "recordsTotal" => Payment::count(),
-            "recordsFiltered" => $totalFiltered,
-            "data" => $data,
-        ];
-
-        return response()->json($json_data);
-    }
-
-    /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
-    {
-        //
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(Payment $payment)
-    {
-        //
     }
 
     /**
@@ -156,20 +63,19 @@ class PaymentController extends Controller
      */
     public function edit(string $id)
     {
-        $studentId = $id;
+        $payment = Payment::where('student_id', $id)->with('user')->first();
 
-        $query = Payment::where('student_id', $studentId)
-                            ->with('user')
-                            ->first();
+        if (!$payment?->user) {
+            return redirect()->route('bill.index')->with('error', 'There is no bill for this student yet.');
+        }
 
-        $paymentReciptData = PaymentHistory::select('id', 'payment_date', 'month_name')->where('student_id', $studentId)->get();
-
-        $data['paymentData'] = $query;
-        $data['studentId'] = $studentId;
-        $data['reciptsData'] = $paymentReciptData;
-        $data['validator'] =  JsValidator::make($this->validationRules);
-
-        return view('Bill.edit', $data);
+        return Inertia::render('Bills/Edit', [
+            'student' => $payment->user->only('id', 'name', 'middle_name', 'last_name', 'canteen_id', 'collage_name', 'profile_pic'),
+            'bill' => $payment->only('id', 'amount', 'pending_amount', 'advance_amount') + ['due' => $payment->balance],
+            'receipts' => PaymentHistory::where('student_id', $id)->orderByDesc('payment_date')->orderByDesc('id')
+                ->get(['id', 'payment_date', 'month_name']),
+            'month' => now()->format('F'),
+        ]);
     }
 
     /**
@@ -191,7 +97,7 @@ class PaymentController extends Controller
         $studentId = $request->student_id;
 
 
-        $payment = Payment::where('student_id', $studentId)->first();
+        $payment = Payment::where('student_id', $studentId)->firstOrFail();
 
         $paymentAmount = $payment->amount ?? 0;
         $pendingAmount = $payment->pending_amount ?? 0;
@@ -266,22 +172,12 @@ class PaymentController extends Controller
         }
 
 
-        return redirect()->route('bill.index')->with('success', 'Payment updated successfully');
+        return redirect()->route('bill.index')->with('success', '₹' . $request->amount . ' saved for ' . Str::squish($payment->user?->full_name ?? '') . '.');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(Payment $payment)
+    public function downloadReceipt(string $paymentId)
     {
-        //
-    }
-
-    public function downloadReceipt(Request $request)
-    {
-
-        $paymentId      = $request->payment_id;
-        $paymentHistory = PaymentHistory::find($paymentId);
+        $paymentHistory = PaymentHistory::findOrFail($paymentId);
 
         $studentId      = $paymentHistory->student_id;
         $paymentMode    = $paymentHistory->type;
@@ -289,7 +185,7 @@ class PaymentController extends Controller
         $paymentMonth   = $paymentHistory->month_name;
         $paidAmount     = $paymentHistory->amount;
 
-        $userDetails = User::where('id', $studentId)->first();
+        $userDetails = User::withTrashed()->findOrFail($studentId);
         
         $year = date('Y', strtotime($paymentDate));
 

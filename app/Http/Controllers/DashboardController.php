@@ -2,56 +2,58 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\MealPrice;
+use App\Models\Payment;
 use App\Models\StudentAttendance;
-use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
-    public function index(){
-        $carbonNow = Carbon::now()->toDateTimeString();
+    public function index()
+    {
+        $today = today();
 
-        // Current system time using native PHP
-        $systemNow = date('Y-m-d H:i:s');
-
-        // Current SQLite time from the database (using SQL query)
-        $sqliteNow = DB::selectOne('SELECT datetime("now") as now')->now;
-
-        
-        $data = [];
-        $data['carbonTime'] = $carbonNow;
-        $data['systemTime'] = $systemNow;
-        $data['dbTime']= $sqliteNow;
-
-        $todayDate = Carbon::now()->format('Y-m-d');
-        
-
-        $mealNames = MealPrice::select('id', 'name')->get();
-
-        $studentAttendanceCount = StudentAttendance::select('meal_id', DB::raw('count(*) as total'))
-            ->where('date', $todayDate)
+        $todayTotals = StudentAttendance::where('date', $today->toDateString())
             ->groupBy('meal_id')
-            ->get();
+            ->pluck(DB::raw('count(*)'), 'meal_id');
 
+        $weekTotals = StudentAttendance::whereBetween('date', [$today->copy()->subDays(6)->toDateString(), $today->toDateString()])
+            ->groupBy('date')
+            ->pluck(DB::raw('count(*)'), 'date');
 
-        // Convert $studentAttendanceCount to a keyed collection for quick lookups by meal_id
-        $attendanceByMealId = $studentAttendanceCount->keyBy('meal_id');
+        // whereHas leaves out bills of deleted students.
+        $bills = Payment::whereRaw(Payment::BALANCE . ' > 0')->whereHas('user', fn ($q) => $q->withoutTrashed());
 
-        // Map through mealNames and combine with attendance counts
-        $combined = $mealNames->map(function ($meal) use ($attendanceByMealId) {
-            return [
-                'meal_id' => $meal->id,
-                'meal_name' => $meal->name,
-                'total' => $attendanceByMealId->has($meal->id) ? $attendanceByMealId->get($meal->id)->total : 0,
-            ];
-        });
+        return Inertia::render('Dashboard', [
+            'meals' => MealPrice::get(['id', 'name'])->map(fn ($meal) => [
+                'id' => $meal->id,
+                'name' => $meal->name,
+                'total' => (int) ($todayTotals[$meal->id] ?? 0),
+            ]),
+            'students' => User::where('role', 'user')->count(),
+            'due' => [
+                'total' => (int) (clone $bills)->sum(DB::raw(Payment::BALANCE)),
+                'students' => (clone $bills)->count(),
+            ],
+            'week' => collect(range(6, 0))->map(function ($daysAgo) use ($today, $weekTotals) {
+                $day = $today->copy()->subDays($daysAgo);
 
-        // If you want it as an array:
-        $monthAttedanceData = $combined;
-        $data['today_attedance_data'] = $monthAttedanceData;
-        return view('dashboard', $data);
+                return [
+                    'date' => $day->toDateString(),
+                    'label' => $daysAgo === 0 ? 'Today' : $day->format('D'),
+                    'total' => (int) ($weekTotals[$day->toDateString()] ?? 0),
+                ];
+            }),
+            'highest' => (clone $bills)->with('user')->orderByRaw(Payment::BALANCE . ' desc')->limit(5)->get()
+                ->map(fn ($bill) => [
+                    'id' => $bill->user->id,
+                    'name' => Str::squish($bill->user->full_name),
+                    'canteen_id' => $bill->user->canteen_id,
+                    'due' => $bill->balance,
+                ]),
+        ]);
     }
 }

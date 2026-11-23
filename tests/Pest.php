@@ -12,7 +12,7 @@
 */
 
 pest()->extend(Tests\TestCase::class)
- // ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
+ ->use(Illuminate\Foundation\Testing\RefreshDatabase::class)
     ->in('Feature');
 
 /*
@@ -41,7 +41,23 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+use App\Models\Payment;
+use App\Models\User;
+
+function makeAdmin(): User
 {
-    // ..
+    return User::factory()->create(['role' => 'admin']);
+}
+
+function makeStudent(array $data = []): User
+{
+    return User::factory()->create($data + ['role' => 'user']);
+}
+
+function makeBill(User $student, int $amount, int $pending = 0, int $advance = 0): Payment
+{
+    return Payment::create([
+        'student_id' => $student->id, 'amount' => $amount, 'pending_amount' => $pending, 'advance_amount' => $advance,
+        'start_date' => '2026-01-01', 'end_date' => '2026-01-31',
+    ]);
 }

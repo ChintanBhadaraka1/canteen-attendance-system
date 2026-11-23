@@ -7,8 +7,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use JsValidator;
-
+use Inertia\Inertia;
 
 class MealPriceController extends Controller
 {
@@ -22,9 +21,7 @@ class MealPriceController extends Controller
      */
     public function index()
     {
-        $mealData = MealPrice::get();
-        $data['meal_data'] = $mealData;
-        return view('Meals.index', $data);
+        return Inertia::render('MealPrices/Index', ['meals' => MealPrice::get(['id', 'name', 'price'])]);
     }
 
     /**
@@ -32,8 +29,7 @@ class MealPriceController extends Controller
      */
     public function create()
     {
-        $data['validator']=  JsValidator::make($this->validationRules);
-        return view('Meals.create',$data);
+        return Inertia::render('MealPrices/Form', ['meal' => null]);
     }
 
     /**
@@ -56,18 +52,10 @@ class MealPriceController extends Controller
         $mealPrice = MealPrice::create($input);
 
         if ($mealPrice) {
-            return redirect()->route('meal-price.index')->with('success', 'Data saved successfully!');
+            return redirect()->route('meal-price.index')->with('success', $mealPrice->name . ' added.');
         } else {
             return redirect()->route('meal-price.index')->with('error', 'Something went wrong please try again later!');
         }
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(MealPrice $mealPrice)
-    {
-        //
     }
 
     /**
@@ -75,11 +63,7 @@ class MealPriceController extends Controller
      */
     public function edit(string $id)
     {
-        $mealData = MealPrice::findOrFail($id);
-        $data['meal'] = $mealData;
-        $data['validator']=  JsValidator::make($this->validationRules);
-
-        return view('Meals.edit', $data);
+        return Inertia::render('MealPrices/Form', ['meal' => MealPrice::findOrFail($id)->only('id', 'name', 'price')]);
     }
 
     /**
@@ -105,7 +89,7 @@ class MealPriceController extends Controller
         $updated = $meal->update($input);
 
         if ($updated) {
-            return redirect()->route('meal-price.index')->with('success', 'Data updated successfully!');
+            return redirect()->route('meal-price.index')->with('success', 'Changes to ' . $meal->name . ' saved.');
         } else {
             return redirect()->route('meal-price.index')->with('error', 'Something went wrong, please try again later!');
         }
@@ -116,22 +100,9 @@ class MealPriceController extends Controller
      */
     public function destroy(string $id)
     {
-        try {
-            $user = MealPrice::findOrFail($id);
-            $user->delete();
+        $meal = MealPrice::findOrFail($id);
+        $meal->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Meal  deleted successfully .',
-            ]);
-
-        } catch (\Exception $e) {
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete Meal . Please try again later.',
-                'error' => $e->getMessage(), 
-            ], 500);
-        }
+        return redirect()->route('meal-price.index')->with('success', $meal->name . ' deleted.');
     }
 }

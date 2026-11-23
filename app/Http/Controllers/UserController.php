@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
 use App\Models\MealPrice;
 use App\Models\Payment;
@@ -11,12 +12,18 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use JsValidator;
-
+use Inertia\Inertia;
 
 class UserController extends Controller
 {
+    use ListsRecords;
+
+    protected $messages = ['phone_number.regex' => 'Enter all 10 digits.'];
+
+    protected $attributes = ['name' => 'first name', 'collage_name' => 'college', 'canteen_id' => 'canteen ID', 'profile_pic' => 'photo'];
+
     protected $validationRules = [
         'name' => ['required', 'string', 'min:2', 'max:30'],
         'middle_name' => ['nullable', 'string', 'min:2', 'max:30'],
@@ -45,87 +52,19 @@ class UserController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return view('Users.index');
-    }
+        $filters = $this->listParams($request, ['name', 'canteen_id', 'collage_name'], 'name');
 
-    public function list(Request $request)
-    {
+        $query = User::where('role', 'user')->orderBy($filters['sort'], $filters['dir'])->orderBy('id');
+        $this->searchIn($query, ['name', 'middle_name', 'last_name', 'email', 'canteen_id', 'collage_name'], $filters['search']);
 
-        $columns = ['id', 'name', 'email', 'canteen_id', 'collage_name'];
-
-        $length = $request->input('length');       // number of records per page
-        $start = $request->input('start');         // offset
-
-        $orderInput = $request->input('order');
-        if (isset($orderInput[0]['column']) && isset($orderInput[0]['dir'])) {
-            $orderColumnIndex = (int)$orderInput[0]['column'];
-            $orderColumn = $columns[$orderColumnIndex];
-            $orderDir = $orderInput[0]['dir'] === 'desc' ? 'desc' : 'asc';
-        } else {
-            // Default order
-            $orderColumn = 'id';
-            $orderDir = 'asc';
-        }
-        $search = $request->input('search.value'); // search input value
-
-        // Base query
-        $query = User::select('id', 'name', 'email', 'canteen_id', 'collage_name');
-        $query = $query->whereNot('name', 'admin');
-
-        // Apply search filter if not empty
-        if (!empty($search)) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('canteen_id', 'like', "%{$search}%")
-                    ->orWhere('collage_name', 'like', "%{$search}%");
-            });
-        }
-
-        $totalFiltered = $query->count();
-
-        // Apply ordering, pagination
-        $users = $query->orderBy($orderColumn, $orderDir)
-            ->offset($start)
-            ->limit($length)
-            ->get();
-
-        if ($orderDir === 'asc') {
-            $counter = $start + 1;
-        } else {
-            $counter = $totalFiltered - $start;
-        }
-
-        $data = [];
-        if (!empty($users)) {
-            foreach ($users as $user) {
-                $action = view('Users.list_action', ['id' => $user->id])->render();
-                $nestedData = [];
-                $nestedData['id'] = $counter;
-                $nestedData['name'] = $user->name;
-                $nestedData['email'] = $user->email;
-                $nestedData['canteen_id'] = $user->canteen_id;
-                $nestedData['collage_name'] = $user->collage_name;
-                $nestedData['action'] = $action;
-                $data[] = $nestedData;
-                if ($orderDir === 'asc') {
-                    $counter++;
-                } else {
-                    $counter--;
-                }
-            }
-        }
-
-        $json_data = [
-            "draw" => intval($request->input('draw')), // for security
-            "recordsTotal" => User::count(),
-            "recordsFiltered" => $totalFiltered,
-            "data" => $data,
-        ];
-
-        return response()->json($json_data);
+        return Inertia::render('Students/Index', [
+            'students' => $this->pageOf($query)->through(fn ($user) => $user->only(
+                'id', 'name', 'middle_name', 'last_name', 'email', 'canteen_id', 'collage_name', 'profile_pic'
+            )),
+            'filters' => $filters,
+        ]);
     }
 
     /**
@@ -133,9 +72,7 @@ class UserController extends Controller
      */
     public function create()
     {
-        $data['validator'] =  JsValidator::make($this->validationRules);
-
-        return view('Users.create', $data);
+        return Inertia::render('Students/Form', ['student' => null]);
     }
 
     /**
@@ -144,7 +81,7 @@ class UserController extends Controller
     public function store(Request $request)
     {
 
-        $validator = Validator::make($request->all(), $this->validationRules);
+        $validator = Validator::make($request->all(), $this->validationRules, $this->messages, $this->attributes);
         if ($validator->fails()) {
             return redirect()->back()
                 ->withErrors($validator)      // Pass validation errors to the session
@@ -182,7 +119,7 @@ class UserController extends Controller
         $user = User::create($input);
 
         if ($user) {
-            return redirect()->route('user.index')->with('success', 'Data saved successfully!');
+            return redirect()->route('user.index')->with('success', Str::squish($user->full_name) . ' added.');
         } else {
             return redirect()->route('user.index')->with('error', 'Something went wrong please try again later!');
         }
@@ -213,44 +150,21 @@ class UserController extends Controller
         // Map through mealNames and combine with attendance counts
         $combined = $mealNames->map(function ($meal) use ($attendanceByMealId) {
             return [
-                'meal_id' => $meal->id,
-                'meal_name' => $meal->name,
+                'id' => $meal->id,
+                'name' => $meal->name,
                 'total' => $attendanceByMealId->has($meal->id) ? $attendanceByMealId->get($meal->id)->total : 0,
             ];
         });
 
-        // If you want it as an array:
-        $monthAttedanceData = $combined;
+        $bill = Payment::where('student_id', $id)->first();
 
-        if (count($mealNames) > 0) {
-        }
-       
-        $paymentLabel = [
-            'amount'      => "This month Month Bill",
-            'pending_amount' => "Pending Payment Amount",
-            'advance_amount'  => "Advance Amount",
-        ];
-
-        $paymentData = [
-            'amount'      => 0,
-            'pending_amount' => 0,
-            'advance_amount' => 0,
-        ];
-
-        $studentPaymentData = Payment::select('amount', 'pending_amount', 'advance_amount')->where('student_id', $id)->first();
-
-        if(!empty($studentPaymentData)){
-            $paymentData = $studentPaymentData->toArray();
-        }
-
-
-        $data['user'] = $userData;
-        $data['month_attendance_data']  = $monthAttedanceData;
-        $data['payment_lable'] = $paymentLabel;
-        $data['payment_data']  = $paymentData;
-
-
-        return view('Users.show', $data);
+        return Inertia::render('Students/Show', [
+            'student' => $userData->only(
+                'id', 'name', 'middle_name', 'last_name', 'email', 'phone_number', 'canteen_id', 'collage_name', 'profile_pic'
+            ),
+            'meals' => $combined,
+            'bill' => $bill?->only('amount', 'pending_amount', 'advance_amount'),
+        ]);
     }
 
     /**
@@ -258,11 +172,11 @@ class UserController extends Controller
      */
     public function edit(string $id)
     {
-        $userData = User::findOrFail($id);
-        $data['user'] = $userData;
-        $data['validator'] =  JsValidator::make($this->updateValidationRules($id));
-
-        return view('Users.edit', $data);
+        return Inertia::render('Students/Form', [
+            'student' => User::findOrFail($id)->only(
+                'id', 'name', 'middle_name', 'last_name', 'email', 'phone_number', 'canteen_id', 'collage_name', 'profile_pic'
+            ),
+        ]);
     }
 
     /**
@@ -273,7 +187,7 @@ class UserController extends Controller
         // Find the user or fail with 404
         $user = User::findOrFail($id);
         $rules = $this->updateValidationRules($id);
-        $validator = Validator::make($request->all(), $rules);
+        $validator = Validator::make($request->all(), $rules, $this->messages, $this->attributes);
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -317,7 +231,7 @@ class UserController extends Controller
         $updated = $user->update($input);
 
         if ($updated) {
-            return redirect()->route('user.index')->with('success', 'User updated successfully!');
+            return redirect()->route('user.index')->with('success', 'Changes to ' . Str::squish($user->full_name) . ' saved.');
         } else {
             return redirect()->back()->with('error', 'Failed to update user, please try again.');
         }
@@ -329,21 +243,9 @@ class UserController extends Controller
      */
     public function destroy(string $id)
     {
-        try {
-            $user = User::findOrFail($id);
-            $user->delete(); // Soft delete
+        $user = User::findOrFail($id);
+        $user->delete(); // Soft delete
 
-            return response()->json([
-                'success' => true,
-                'message' => 'User deleted successfully .',
-            ]);
-        } catch (\Exception $e) {
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete user. Please try again later.',
-                'error' => $e->getMessage(),  // Optional: remove in production
-            ], 500);
-        }
+        return redirect()->route('user.index')->with('success', Str::squish($user->full_name) . ' deleted.');
     }
 }

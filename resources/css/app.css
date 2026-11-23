@@ -1,11 +1,29 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/anek-latin/wdth.css';
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
-@source '../**/*.js';
-
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+/* static: component styles use these variables, which Tailwind does not scan. */
+@theme static {
+    --font-sans: 'Anek Latin Variable', system-ui, sans-serif;
+    --color-navy-950: #071330;
+    --color-navy-900: #0b1b3b;
+    --color-navy-700: #1b3468;
+    --color-primary: #1d4ed8;
+    --color-paper: #dce7fa;
+    --color-ink: #0f1e3a;
+    --color-muted: #465676;
+    --color-navy-text: #c7d5ec;
+    --color-turmeric: #f5b82e;
+    --color-danger: #b91c1c;
+    --color-canvas: #f4f7fc;
+    --color-line: #c5d3ea;
+    --color-field: #6b7c9d;
+    --color-ok: #047857;
+    --color-ok-bg: #e3f6ee;
+    --color-due: #8a3d0c;
+    --color-due-bg: #fff2d6;
 }
+
+/* Set on <html> by the admin layout; rem keeps every admin size in step. */
+html.text-normal { font-size: 18px; }
+html.text-large { font-size: 21px; }
+html.text-largest { font-size: 24px; }

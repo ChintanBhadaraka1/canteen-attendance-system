@@ -57,6 +57,11 @@ class User extends Authenticatable
         ];
     }
 
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
     public function getFullNameAttribute()
     {
         // Combine name parts and trim extra spaces

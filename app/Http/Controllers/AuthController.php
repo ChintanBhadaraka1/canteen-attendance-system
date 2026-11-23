@@ -2,45 +2,100 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
 
 class AuthController extends Controller
 {
-    protected $validation = [];
-
     public function index()
     {
-        return view('Auth.login');
+        return Inertia::render('Auth/Login');
     }
 
     public function login(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'email' => ['required', 'email'],
-            'password' => ['required'],
+        $credentials = $request->validate([
+            'email' => ['required', 'string', 'email'],
+            'password' => ['required', 'string'],
+            'remember' => ['boolean'],
         ]);
+        unset($credentials['remember']);
 
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->withInput($request->except('password'))
-                ->with('error', 'Please fix the validation errors and try again.');
+        $key = 'login|' . Str::lower($credentials['email']) . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            throw ValidationException::withMessages([
+                'email' => __('auth.throttle', ['seconds' => RateLimiter::availableIn($key)]),
+            ]);
         }
 
-        $credentials = $request->only('email', 'password');
+        if (!Auth::attempt($credentials, $request->boolean('remember'))) {
+            RateLimiter::hit($key, 60);
 
-        if (Auth::attempt($credentials)) {
-            $request->session()->regenerate();
-            return redirect()->route('dashboard')
-                ->with('success', 'Login successful! Welcome back.');
+            throw ValidationException::withMessages(['email' => 'Email or password is incorrect.']);
         }
 
+        RateLimiter::clear($key);
+        $request->session()->regenerate();
 
-        return redirect()->back()->with('error', 'Invalid credentials!');
+        $user = $request->user();
+        $intended = $request->session()->pull('url.intended');
+
+        if (!$user->isAdmin()) {
+            return redirect()->to($this->homeFor($user));
+        }
+
+        $request->session()->flash('success', 'Login successful! Welcome back.');
+
+        return redirect()->to($intended ?? $this->homeFor($user));
+    }
+
+    public function showRegister()
+    {
+        return Inertia::render('Auth/Register');
+    }
+
+    public function register(Request $request)
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'min:2', 'max:30'],
+            'last_name' => ['nullable', 'string', 'min:2', 'max:30'],
+            'collage_name' => ['required', 'string', 'min:2', 'max:30'],
+            'email' => ['required', 'email', 'regex:/^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,4}$/', 'max:255', 'unique:users,email'],
+            'phone_number' => ['required', 'regex:/^[0-9]{10}$/'],
+            'password' => ['required', 'string', 'min:8', 'max:72', 'confirmed'],
+        ], attributes: ['collage_name' => 'college']);
+
+        $user = User::create(['role' => 'user'] + $data);
+
+        Auth::login($user);
+        $request->session()->regenerate();
+        $request->session()->forget('url.intended');
+
+        return redirect()->to($this->homeFor($user))
+            ->with('success', 'Registered. Collect your canteen ID at the counter.');
+    }
+
+    public function account(Request $request)
+    {
+        $user = $request->user();
+
+        if ($user->isAdmin()) {
+            return redirect()->to($this->homeFor($user));
+        }
+
+        return Inertia::render('Account', [
+            'student' => [
+                'name' => $user->full_name,
+                'collage_name' => $user->collage_name,
+                'canteen_id' => $user->canteen_id,
+            ],
+        ]);
     }
 
     public function logout(Request $request)
@@ -53,7 +108,14 @@ class AuthController extends Controller
         // Regenerate the CSRF token to prevent session fixation
         $request->session()->regenerateToken();
 
-        // Redirect to the login page or home page after logout
-        return redirect()->route('login')->with('success', 'You have been logged out successfully.');
+        $request->session()->flash('success', 'You have been logged out successfully.');
+
+        // A full page load, so the Back button cannot bring private pages back from memory.
+        return Inertia::location(route('login'));
+    }
+
+    private function homeFor(User $user): string
+    {
+        return route($user->isAdmin() ? 'dashboard' : 'account');
     }
 }

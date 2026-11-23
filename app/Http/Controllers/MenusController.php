@@ -3,16 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\Menus;
+use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
-use JsValidator;
-
+use Inertia\Inertia;
 
 
 class MenusController extends Controller
 {
+    use ListsRecords;
+
+    protected $messages = ['price.required_if' => 'Enter a price for this extra item.'];
+
     protected $validationRules = [
         'name' => ['required', 'string', 'min:2', 'max:30'],
         'is_extra' => ['nullable'],
@@ -23,92 +27,30 @@ class MenusController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        return view('Menus.index');
+        $filters = $this->listParams($request, ['name'], 'name');
+
+        $query = Menus::orderBy('name', $filters['dir'])->orderBy('id');
+        $this->searchIn($query, ['name'], $filters['search']);
+
+        return Inertia::render('Menu/Index', [
+            'items' => $this->pageOf($query)->through(fn ($menu) => $this->item($menu)),
+            'filters' => $filters,
+        ]);
     }
 
-    public function list(Request $request)
+    private function item(Menus $menu): array
     {
-
-        $columns = ['id', 'name', 'slug', 'is_extra', 'price', 'images'];
-
-        $length = $request->input('length');       // number of records per page
-        $start = $request->input('start');         // offset
-
-        $orderInput = $request->input('order');
-        if (isset($orderInput[0]['column']) && isset($orderInput[0]['dir'])) {
-            $orderColumnIndex = (int)$orderInput[0]['column'];
-            $orderColumn = $columns[$orderColumnIndex];
-            $orderDir = $orderInput[0]['dir'] === 'desc' ? 'desc' : 'asc';
-        } else {
-            // Default order
-            $orderColumn = 'id';
-            $orderDir = 'asc';
-        }
-        $search = $request->input('search.value'); // search input value
-
-        // Base query
-        $query = Menus::select('id', 'name', 'slug', 'is_extra', 'images');
-
-        // Apply search filter if not empty
-        if (!empty($search)) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('slug', 'like', "%{$search}%")
-                    ->orWhere('is_extra', 'like', "%{$search}%");
-            });
-        }
-
-        $totalFiltered = $query->count();
-
-        // Apply ordering, pagination
-        $menus = $query->orderBy($orderColumn, $orderDir)
-            ->offset($start)
-            ->limit($length)
-            ->get();
-
-        if ($orderDir === 'asc') {
-            $counter = $start + 1;
-        } else {
-            $counter = $totalFiltered - $start;
-        }
-
-        $data = [];
-        if (!empty($menus)) {
-            foreach ($menus as $menu) {
-                $action = view('Menus.list_action', ['id' => $menu->id])->render();
-                $nestedData = [];
-                $nestedData['id'] = $counter;
-                $nestedData['name'] = $menu->name;
-                $nestedData['is_extra'] = $menu->is_extra;
-                $nestedData['action'] = $action;
-                $data[] = $nestedData;
-                if ($orderDir === 'asc') {
-                    $counter++;
-                } else {
-                    $counter--;
-                }
-            }
-        }
-
-        $json_data = [
-            "draw" => intval($request->input('draw')), // for security
-            "recordsTotal" => Menus::count(),
-            "recordsFiltered" => $totalFiltered,
-            "data" => $data,
-        ];
-
-        return response()->json($json_data);
+        return ['is_extra' => $menu->is_extra == '1'] + $menu->only('id', 'name', 'price', 'images');
     }
+
     /**
      * Show the form for creating a new resource.
      */
     public function create()
     {
-        $data['validator']=  JsValidator::make($this->validationRules);
-
-        return view('Menus.create',$data);
+        return Inertia::render('Menu/Form', ['item' => null]);
     }
 
     /**
@@ -117,7 +59,7 @@ class MenusController extends Controller
     public function store(Request $request)
     {
 
-        $validator = Validator::make($request->all(), $this->validationRules);
+        $validator = Validator::make($request->all(), $this->validationRules, $this->messages, ['images' => 'photo']);
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -152,18 +94,10 @@ class MenusController extends Controller
         $menuCreate = Menus::create($input);
 
         if ($menuCreate) {
-            return redirect()->route('menus.index')->with('success', 'Data saved successfully!');
+            return redirect()->route('menus.index')->with('success', $menuCreate->name . ' added.');
         } else {
             return redirect()->route('menus.index')->with('error', 'Something went wrong please try again later!');
         }
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(Menus $menus)
-    {
-        //
     }
 
     /**
@@ -171,10 +105,7 @@ class MenusController extends Controller
      */
     public function edit(string $id)
     {
-        $menuData = Menus::findOrFail($id);
-        $data['menu'] = $menuData;
-        $data['validator']=  JsValidator::make($this->validationRules);
-        return view('Menus.edit', $data);
+        return Inertia::render('Menu/Form', ['item' => $this->item(Menus::findOrFail($id))]);
     }
 
     /**
@@ -185,7 +116,7 @@ class MenusController extends Controller
         $menu = Menus::findOrFail($id);
 
         // Validate the request with your existing rules (you can reuse the same $this->validationRules or define update rules if needed)
-        $validator = Validator::make($request->all(), $this->validationRules);
+        $validator = Validator::make($request->all(), $this->validationRules, $this->messages, ['images' => 'photo']);
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -232,12 +163,11 @@ class MenusController extends Controller
 
         $input['images'] = $fileName;
 
-        // dd($input);
         // Update the menu with new data
         $updated = $menu->update($input);
 
         if ($updated) {
-            return redirect()->route('menus.index')->with('success', 'Data updated successfully!');
+            return redirect()->route('menus.index')->with('success', 'Changes to ' . $menu->name . ' saved.');
         } else {
             return redirect()->route('menus.index')->with('error', 'Something went wrong, please try again later!');
         }
@@ -249,22 +179,9 @@ class MenusController extends Controller
      */
     public function destroy(string $id)
     {
-        try {
-            $user = Menus::findOrFail($id);
-            $user->delete(); // Soft delete
+        $menu = Menus::findOrFail($id);
+        $menu->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Menu item deleted successfully .',
-            ]);
-
-        } catch (\Exception $e) {
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete Menu item. Please try again later.',
-                'error' => $e->getMessage(), 
-            ], 500);
-        }
+        return redirect()->route('menus.index')->with('success', $menu->name . ' deleted.');
     }
 }
