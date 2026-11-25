@@ -109,6 +109,12 @@
 
 <body>
     <div class="receipt">
+        @if ($payment->cancelled_at)
+            <div style="border: 3px solid #b91c1c; color: #b91c1c; padding: 12px; margin-bottom: 20px; text-align: center;">
+                <strong style="font-size: 24px;">CANCELLED</strong><br>
+                {{ $payment->cancelled_at->format('j F Y') }}: {{ $payment->cancel_reason }}
+            </div>
+        @endif
         <div class="header">
             <h1>Bill Receipt</h1>
             <p>{{ $payment_month }} Payment</p>
@@ -137,6 +143,7 @@
                     @foreach ($attedance_counts as $attendance)
                         <th>{{ $attendance['meal_name']}}</th>
                     @endforeach
+                    <th>Guest plates</th>
                 </tr>
             </thead>
             <thead>
@@ -144,6 +151,7 @@
                     @foreach ($attedance_counts as $attendance)
                         <th>{{ $attendance['total']}}</th>
                     @endforeach
+                    <th>{{ $guest_plates ?? 0 }}</th>
                 </tr>
             </thead>
             
@@ -152,8 +160,8 @@
         <table>
             <tbody>
                 <tr class="total-row">
-                    <th>Total Amount:</th>
-                    <td><b>{{ number_format($total_amount, 2) }}</b></td>
+                    <th>Amount paid:</th>
+                    <td><b>{{ $total_amount === null ? 'Not available' : number_format($total_amount, 2) }}</b></td>
                 </tr>
                 {{-- @if (!empty($pending_amount) && $pending_amount > 0)
                     <tr class="conditional-row">

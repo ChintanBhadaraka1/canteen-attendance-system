@@ -1,7 +1,7 @@
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { ArrowLeft, CircleAlert, CircleCheck, ClipboardCheck, House, IndianRupee, LogOut, ReceiptIndianRupee, Users, Utensils } from '@lucide/vue';
+import { ArrowLeft, ChartColumn, CircleAlert, CircleCheck, ClipboardCheck, History, House, IndianRupee, LogOut, Package, ReceiptIndianRupee, Settings, ShoppingCart, UserCog, Users, Utensils, WalletCards } from '@lucide/vue';
 import AppButton from '../Components/AppButton.vue';
 import { longDate } from '../format';
 
@@ -12,15 +12,30 @@ defineProps({
 
 const page = usePage();
 
-const menu = [
-    { href: '/dashboard', label: 'Home', icon: House },
-    { href: '/student-attendance', label: 'Mark attendance', icon: ClipboardCheck },
-    { href: '/bill', label: 'Bills and payments', icon: ReceiptIndianRupee },
-    { href: '/user', label: 'Students', icon: Users },
-    { href: '/menus', label: 'Menu', icon: Utensils },
-    { href: '/meal-price', label: 'Meal prices', icon: IndianRupee },
-];
-const isCurrent = (href) => page.url.split('?')[0].split('/')[1] === href.slice(1);
+const menu = computed(() => [
+    { title: 'Daily work', items: [
+        { href: '/dashboard', label: 'Home', icon: House },
+        { href: '/student-attendance', label: 'Mark attendance', icon: ClipboardCheck },
+        { href: '/bill', label: 'Bills and payments', icon: ReceiptIndianRupee },
+    ] },
+    { title: 'Food', items: [
+        { href: '/menu-plan', also: 'menus', label: 'Menu', icon: Utensils },
+        { href: '/meal-price', label: 'Meal prices', icon: IndianRupee },
+    ] },
+    { title: 'Store', items: [
+        { href: '/stock', label: 'Stock', icon: Package },
+        { href: '/purchases', label: 'Purchases', icon: ShoppingCart },
+        ...(page.props.modules?.expenses ? [{ href: '/expenses', label: 'Expenses', icon: WalletCards }] : []),
+        ...(page.props.modules?.staff ? [{ href: '/staff', label: 'Staff', icon: UserCog }] : []),
+    ] },
+    { title: 'Records', items: [
+        { href: '/user', label: 'Students', icon: Users },
+        { href: '/reports', also: 'cash-check', label: 'Reports', icon: ChartColumn },
+        { href: '/changes', label: 'Changes', icon: History },
+        { href: '/settings', label: 'Settings', icon: Settings },
+    ] },
+]);
+const isCurrent = ({ href, also }) => [href.slice(1), also].includes(page.url.split('?')[0].split('/')[1]);
 
 const sizes = [
     { key: 'normal', label: 'Normal text' },
@@ -72,9 +87,14 @@ const signOut = () => router.post('/logout', {}, {
             <aside class="bar">
                 <div class="brand">Canteen Attendance</div>
                 <nav aria-label="Main">
-                    <Link v-for="item in menu" :key="item.href" :href="item.href" :aria-current="isCurrent(item.href) ? 'page' : undefined">
-                        <component :is="item.icon" aria-hidden="true" />{{ item.label }}
-                    </Link>
+                    <template v-for="(group, index) in menu" :key="group.title">
+                        <h2 :id="`menu-${index}`" class="group">{{ group.title }}</h2>
+                        <div class="links" role="group" :aria-labelledby="`menu-${index}`">
+                            <Link v-for="item in group.items" :key="item.href" :href="item.href" :aria-current="isCurrent(item) ? 'page' : undefined">
+                                <component :is="item.icon" aria-hidden="true" />{{ item.label }}
+                            </Link>
+                        </div>
+                    </template>
                 </nav>
                 <div class="end">
                     <button type="button" :disabled="leaving" @click="signOut"><LogOut aria-hidden="true" />Sign out</button>
@@ -120,14 +140,15 @@ const signOut = () => router.post('/logout', {}, {
 .admin button:disabled, .admin [aria-disabled="true"] { cursor: default; }
 .admin .app { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); min-height: 100vh; }
 
-.admin .bar { background: var(--color-navy-900); color: var(--color-navy-text); padding: 1.2rem .8rem; display: flex; flex-direction: column; gap: .5rem; position: sticky; top: 0; height: 100vh; overflow: auto; }
-.admin .bar nav { display: flex; flex-direction: column; gap: 8px; }
+.admin .bar { background: var(--color-navy-900); color: var(--color-navy-text); padding: .7rem .8rem; display: flex; flex-direction: column; gap: .5rem; position: sticky; top: 0; height: 100vh; overflow: auto; }
+.admin .bar .links { display: flex; flex-direction: column; }
+.admin .bar .group { font-size: 1rem; font-weight: 600; color: var(--color-navy-text); padding: .25rem .8rem 0; }
 .admin .bar :focus-visible { outline-color: var(--color-turmeric); outline-offset: -3px; }
-.admin .brand { font-weight: 800; font-stretch: 75%; font-size: 1.55rem; line-height: 1.05; color: #fff; padding: .2rem .8rem 1.1rem; }
-.admin .bar a, .admin .bar button { display: flex; align-items: center; gap: .8rem; min-height: 3.1rem; padding: .4rem .8rem; border-radius: 8px; font-weight: 550; text-align: left; width: 100%; }
+.admin .brand { font-weight: 800; font-stretch: 75%; font-size: 1.55rem; line-height: 1.05; color: #fff; padding: .2rem .8rem .3rem; }
+.admin .bar a, .admin .bar button { display: flex; align-items: center; gap: .8rem; min-height: 48px; padding: .4rem .8rem; border-radius: 8px; font-weight: 550; text-align: left; width: 100%; }
 .admin .bar a:hover, .admin .bar button:hover { background: var(--color-navy-700); color: #fff; }
 .admin .bar a[aria-current] { background: var(--color-turmeric); color: var(--color-navy-950); font-weight: 700; }
-.admin .bar .end { margin-top: auto; border-top: 1px solid var(--color-navy-700); padding-top: .7rem; }
+.admin .bar .end { margin-top: auto; border-top: 1px solid var(--color-navy-700); padding-top: .2rem; }
 
 .admin .main { padding: 1.5rem 2rem 4rem; max-width: 74rem; width: 100%; min-width: 0; }
 .admin .tools { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.4rem; color: var(--color-muted); }
@@ -185,6 +206,8 @@ const signOut = () => router.post('/logout', {}, {
 .admin .err { color: var(--color-danger); font-weight: 600; }
 .admin .formgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.2rem; }
 .admin .full { grid-column: 1 / -1; }
+.admin .check { display: flex; align-items: center; gap: .8rem; min-height: 3.1rem; font-weight: 600; cursor: pointer; }
+.admin .check input { width: 1.6rem; height: 1.6rem; accent-color: var(--color-primary); flex: none; }
 .admin .label { font-weight: 600; margin-bottom: .3rem; }
 
 .admin .meals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; margin-bottom: 1.2rem; }
@@ -202,6 +225,10 @@ const signOut = () => router.post('/logout', {}, {
 .admin .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 1.2rem; }
 .admin .cards .panel { display: flex; flex-direction: column; gap: .7rem; }
 .admin .cards .acts { justify-content: flex-start; margin-top: auto; }
+.admin .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .8rem; margin-bottom: 1.4rem; }
+.admin .tabs a { display: flex; align-items: center; justify-content: center; gap: .6rem; min-height: 3.4rem; padding: .4rem 1rem; border: 2px solid var(--color-primary); border-radius: 10px; background: #fff; color: var(--color-primary); font-weight: 700; }
+.admin .tabs a:hover { background: var(--color-paper); }
+.admin .tabs a[aria-current] { background: var(--color-navy-900); border-color: var(--color-navy-900); color: #fff; }
 .admin .price { font-weight: 800; font-stretch: 75%; font-size: 2.6rem; line-height: 1; }
 
 .admin .note-spot { position: sticky; top: .5rem; z-index: 2; }
@@ -216,10 +243,11 @@ const signOut = () => router.post('/logout', {}, {
 @container admin (max-width: 55.5rem) {
     .admin .app { grid-template-columns: minmax(0, 1fr); align-content: start; }
     .admin .bar { position: static; height: auto; padding: .7rem; }
-    .admin .bar nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr)); }
+    .admin .bar .links { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr)); }
+    .admin .bar .group { padding: .4rem .3rem .1rem; }
     .admin .brand { padding: .3rem; }
     .admin .bar .end { padding-top: .3rem; }
-    .admin .bar nav a { flex-direction: column; gap: .15rem; justify-content: center; text-align: center; line-height: 1.1; padding: .5rem .2rem; }
+    .admin .bar .links a { flex-direction: column; gap: .15rem; justify-content: center; text-align: center; line-height: 1.1; padding: .5rem .2rem; }
     .admin .main { padding: 1rem; }
     .admin .two, .admin .formgrid { grid-template-columns: minmax(0, 1fr); }
 }
@@ -241,6 +269,14 @@ const signOut = () => router.post('/logout', {}, {
     .admin .meals button { min-height: 3.3rem; }
     .admin h1 { font-size: 2rem; }
     .admin .head .acts, .admin .head .btn { width: 100%; }
+}
+@media print {
+    .admin { container-type: normal; background: #fff; color: #000; }
+    .admin .app { display: block; }
+    .admin .bar, .admin .tools, .admin .acts, .admin .filters, .admin .note-spot, .admin .screen-only { display: none; }
+    .admin .main { padding: 0; max-width: none; }
+    .admin .panel { border: 0; padding: 0; }
+    .admin .small, .admin td { color: #000; }
 }
 @media (prefers-reduced-motion: reduce) {
     .admin * { transition: none !important; }

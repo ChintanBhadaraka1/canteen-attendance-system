@@ -32,7 +32,7 @@ return new class extends Migration
                 'middle_name',
                 'last_name',
                 'collage_name',
-                'collage_id',
+                'canteen_id',
                 'phone_number',
                 'profile_pic',
                 'role',

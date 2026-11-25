@@ -72,15 +72,15 @@ test('a date before the last payment is rejected', function () {
 });
 
 test('form saves date and extras', function () {
-    Menus::create(['name' => 'Curd', 'slug' => 'curd', 'is_extra' => '1', 'price' => 15]);
+    $curd = Menus::create(['name' => 'Curd', 'slug' => 'curd', 'is_extra' => '1', 'price' => 15]);
     Menus::create(['name' => 'Dal', 'slug' => 'dal']);
 
     $this->get("/student-attendance/create/{$this->student->id}")->assertInertia(fn (Assert $page) => $page
         ->component('Attendance/Create')->where('student.id', $this->student->id)->has('meals', 1)
-        ->has('extras', 1)->where('extras.0.slug', 'curd')->where('today', today()->toDateString()));
+        ->has('extras', 1)->where('extras.0.id', $curd->id)->where('today', today()->toDateString()));
     $this->get('/student-attendance/create/999')->assertNotFound();
 
-    attend($this, ['date' => '2026-01-10', 'include_extra' => 'yes', 'extra_items' => ['curd' => 2]])->assertRedirect('/student-attendance');
+    attend($this, ['date' => '2026-01-10', 'include_extra' => 'yes', 'extra_items' => [$curd->id => 2]])->assertRedirect('/student-attendance');
     expect(StudentAttendance::sole())->amount->toEqual(70)->extra_amount->toEqual(30)->date->toBe('2026-01-10');
     expect(Payment::sole()->amount)->toBe(100);
 });

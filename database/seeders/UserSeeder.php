@@ -22,7 +22,7 @@ class UserSeeder extends Seeder
 
         // If user doesn't already exist, create
         if (!User::where('email', $userData['email'])->exists()) {
-            User::create($userData);
+            (new User)->forceFill($userData)->save();
         }
     }
 }

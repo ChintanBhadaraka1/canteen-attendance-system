@@ -11,7 +11,7 @@ defineProps({
     variant: { type: String, default: 'danger solid' },
     busy: Boolean,
 });
-defineEmits(['confirm']);
+defineEmits(['confirm', 'closed']);
 
 const dialog = ref(null);
 const id = useId();
@@ -19,9 +19,10 @@ defineExpose({ open: () => dialog.value.showModal(), close: () => dialog.value.c
 </script>
 
 <template>
-    <dialog ref="dialog" :aria-labelledby="id">
+    <dialog ref="dialog" :aria-labelledby="id" @close="$emit('closed')">
         <h2 :id="id">{{ title }}</h2>
         <p>{{ text }}</p>
+        <slot />
         <div class="acts">
             <AppButton variant="plain" autofocus @click="dialog.close()">{{ cancelLabel }}</AppButton>
             <AppButton :variant="variant" :icon="icon" :disabled="busy" @click="$emit('confirm')">{{ confirmLabel }}</AppButton>

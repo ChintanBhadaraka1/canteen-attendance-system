@@ -9,13 +9,13 @@ const props = defineProps({
     columns: { type: Array, default: () => [] },
     rows: { type: Object, required: true },
     filters: { type: Object, required: true },
-    searchLabel: { type: String, required: true },
+    searchLabel: { type: String, default: undefined },
     searchHint: { type: String, default: undefined },
     noun: { type: String, required: true },
     plural: { type: String, default: undefined },
 });
 
-const search = ref(props.filters.search);
+const search = ref(props.filters.search ?? '');
 let timer = null;
 let busy = false;
 
@@ -52,7 +52,7 @@ const countWord = () => (props.rows.total === 1 ? props.noun : props.plural ?? `
 <template>
     <div class="filters">
         <FormField
-            id="list-search" v-model="search" :label="searchLabel" :placeholder="searchHint"
+            v-if="searchLabel" id="list-search" v-model="search" :label="searchLabel" :placeholder="searchHint"
             type="search" maxlength="100" autocomplete="off" @input="searchSoon"
         />
         <slot name="filters" :visit="visit" />

@@ -2,18 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BillingException;
 use App\Models\StudentAttendance;
 use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
+use App\Models\GuestMeal;
 use App\Models\MealPrice;
 use App\Models\Menus;
-use App\Models\Payment;
 use App\Models\User;
+use App\Services\BillingService;
+use App\Support\Csv;
+use App\Services\MenuCalendar;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Response;
-use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 
@@ -21,15 +25,17 @@ class StudentAttendanceController extends Controller
 {
     use ListsRecords;
 
-    protected $validationRules = [
-        'user_id' => ['required', 'integer', 'exists:users,id'],
-        'meal_id' => ['required', 'integer', 'exists:meal_prices,id'],
-        'include_extra' => ['required', 'in:yes,no'],
-        'extra_items' => ['nullable', 'array'],
-        'extra_items.*' => ['nullable', 'integer', 'min:0'],
-        'date' => ['nullable', 'date'],
-
-    ];
+    private function validationRules(): array
+    {
+        return [
+            'user_id' => ['bail', 'required', 'integer', Rule::exists('users', 'id')->where('role', 'user')->whereNull('deleted_at')],
+            'meal_id' => ['bail', 'required', 'integer', 'exists:meal_prices,id'],
+            'include_extra' => ['required', 'in:yes,no'],
+            'extra_items' => ['nullable', 'array'],
+            'extra_items.*' => ['nullable', 'integer', 'between:0,99'],
+            'date' => ['bail', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
+        ];
+    }
 
     /**
      * Display a listing of the resource.
@@ -37,21 +43,23 @@ class StudentAttendanceController extends Controller
     public function index(Request $request)
     {
         $filters = $this->listParams($request, ['name', 'canteen_id', 'collage_name'], 'name');
-        $meals = MealPrice::get(['id', 'name', 'price']);
-        $mealId = $meals->firstWhere('id', (int) $this->text($request, 'meal'))?->id;
+        $today = today()->toDateString();
+        $meals = MealPrice::offeredOn($today);
+        $mealId = $meals->firstWhere('id', (int) $this->text($request, 'meal'))['id'] ?? null;
 
-        $query = User::where('role', 'user')->orderBy($filters['sort'], $filters['dir'])->orderBy('id');
+        $query = User::active()->orderBy($filters['sort'], $filters['dir'])->orderBy('id');
         $this->searchIn($query, ['name', 'middle_name', 'last_name', 'canteen_id', 'collage_name'], $filters['search']);
         $students = $this->pageOf($query);
 
         $marked = $mealId === null ? collect() : StudentAttendance::where('meal_id', $mealId)
-            ->where('date', today()->toDateString())
+            ->where('date', $today)
             ->whereIn('student_id', $students->pluck('id'))
             ->pluck('student_id');
 
         return Inertia::render('Attendance/Index', [
             'meals' => $meals,
             'meal' => $mealId,
+            'menu' => MenuCalendar::between($today, $today)[$today],
             'students' => $students->through(fn ($user) => $user->only(
                 'id', 'name', 'middle_name', 'last_name', 'canteen_id', 'collage_name', 'profile_pic'
             ) + ['marked' => $mealId === null ? null : $marked->contains($user->id)]),
@@ -60,29 +68,20 @@ class StudentAttendanceController extends Controller
         ]);
     }
 
-    // Dates from the address bar; anything invalid falls back to the last 30 days.
-    private function dates(Request $request): array
-    {
-        $valid = Validator::make($request->only('from', 'to'), [
-            'from' => ['required', 'date_format:Y-m-d'],
-            'to' => ['required', 'date_format:Y-m-d'],
-        ])->passes();
-
-        return $valid ? $request->only('from', 'to') : [
-            'from' => today()->subDays(29)->toDateString(),
-            'to' => today()->toDateString(),
-        ];
-    }
-
     /**
      * Show the form for creating a new resource.
      */
-    public function create(string $id)
+    public function create(Request $request, string $id)
     {
+        $valid = Validator::make($request->only('date'), ['date' => ['bail', 'required', 'date_format:Y-m-d', 'before_or_equal:today']])->passes();
+        $date = $valid ? $request->input('date') : today()->toDateString();
+
         return Inertia::render('Attendance/Create', [
             'student' => User::findOrFail($id)->only('id', 'name', 'middle_name', 'last_name', 'canteen_id'),
-            'meals' => MealPrice::get(['id', 'name', 'price']),
-            'extras' => Menus::where('is_extra', '1')->get(['id', 'name', 'slug', 'price']),
+            'meals' => MealPrice::offeredOn($date),
+            'menu' => MenuCalendar::between($date, $date)[$date],
+            'date' => $date,
+            'extras' => Menus::extras()->get(['id', 'name', 'price']),
             'today' => today()->toDateString(),
         ]);
     }
@@ -90,138 +89,26 @@ class StudentAttendanceController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+    public function store(Request $request, BillingService $billing)
     {
-        // checking user exists or not..
-        // checking meal is exists or not..
-
-        $input = $request->all();
-        $validator = Validator::make($input, $this->validationRules);
-
-        if ($validator->fails()) {
-            return redirect()->back()
-                ->withErrors($validator)
-                ->withInput();
-        }
-
-        $mealName = MealPrice::find($input['meal_id'])->name;
-        $studentName = Str::squish(User::withTrashed()->find($input['user_id'])->full_name);
-
-        $attendanceDate = isset($input['date']) ? $input['date'] : now()->format('Y-m-d');
-
-        // checking payment already done for selected date 
-        $checkingPaymentAlreadyDone = StudentAttendance::select('date')->where('student_id', $input['user_id'])->where('is_paid',1)->orderBy('date','DESC')->first();
-        if(!empty($checkingPaymentAlreadyDone)){
-            if($checkingPaymentAlreadyDone->date != null){
-                $lastPaymentDate   = Carbon::parse($checkingPaymentAlreadyDone->date); 
-                $newAttedanceDate = Carbon::parse($attendanceDate);
-                $resultEndDate = $newAttedanceDate->lt($lastPaymentDate);
-                if($resultEndDate){
-                    return $this->rejected($request, 'This date is already paid, so attendance cannot be added.');
-                }
-            }
-
-        }
-        
-        // checking attendance already done for student or not for selected date
-        $checkingAlreadyAttendaceThere = StudentAttendance::where('student_id', $input['user_id'])->where('date',$attendanceDate)->where('meal_id',$input['meal_id'])->exists();
-        
-        if($checkingAlreadyAttendaceThere){
-            return $this->rejected($request, "$mealName is already marked for this date.");
-        }
-
-        // get the meal price using selected meal id
-        $mealPrice = MealPrice::select('price')->where('id', $input['meal_id'])->first();
-        $mealValue = $mealPrice->price;
-        $extraValue = 0;
-        $extraItemIdArray = [];
-
-        // if extra items there then add there price also
-        if (isset($input['include_extra']) && $input['include_extra'] === 'yes') {
-            $extraIteamArray = $input['extra_items'] ?? [];
-            $slugArray = array_keys($extraIteamArray);
-
-            $extraItemPriceArray = Menus::select('id', 'slug', 'price')->whereIn('slug', $slugArray)->get();
-
-            if (!empty($extraItemPriceArray)) {
-                foreach ($extraItemPriceArray as $item) {
-                    $quantity = (int) ($extraIteamArray[$item->slug] ?? 0);
-                    if ($quantity > 0) {
-                        $amount = $quantity * $item->price;
-                        if ($amount > 0) {
-                            $extraValue += $amount;
-                            $extraItemIdArray[] = $item->id;
-                        }
-                    }
-                }
+        $input = $request->validate($this->validationRules());
+        $extras = [];
+        if ($input['include_extra'] === 'yes') {
+            foreach ($input['extra_items'] ?? [] as $id => $quantity) {
+                $extras[(int) $id] = (int) $quantity;
             }
         }
 
-        $data = [
-            'student_id' => $input['user_id'],
-            'meal_id'    => $input['meal_id'],
-            'amount'     => $mealValue,             // keep as float/decimal if DB is decimal
-            'extra_amount'  => $extraValue,
-            'extra_meal_id' => !empty($extraItemIdArray) ? json_encode($extraItemIdArray) : null,
-            'date' => $attendanceDate
-        ];
-        $addAttendance = StudentAttendance::create($data);
-
-        $paymentAmount = 0;
-        $payment = Payment::where('student_id', $input['user_id'])->first();
-
-        if (!empty($payment)) {
-
-            $paymentAmount = $payment->amount ?? 0;
-            $totalAmount   = $paymentAmount + $mealValue + $extraValue;
-            $paymentId     = $payment->id;
-            $paymentEndDate    = $payment->end_date;
-            $paymentStartDate  = $payment->start_date;
-
-            $inputDate      = Carbon::parse($attendanceDate); 
-            $storeEndDate   = Carbon::parse($paymentEndDate); 
-            $storeStartDate = Carbon::parse($paymentStartDate);
-
-            $resultEndDate = $inputDate->gt($storeEndDate);
-
-            if($resultEndDate){
-                $newDateEndDate = $attendanceDate;
-            }
-            else{
-                $newDateEndDate = $paymentEndDate;
-            }
-
-            $resultStartDate = $inputDate->lt($storeStartDate);
-
-            if($resultStartDate){
-                $newStartDate = $attendanceDate;
-            }
-            else{
-                $newStartDate = $storeStartDate;
-            }
-
-            $paymentAmountUpdate = Payment::find($paymentId)
-                ->update([
-                    'amount' => $totalAmount,
-                    'start_date' => $newStartDate,
-                    'end_date'   => $newDateEndDate,
-                ]);
-
-        } else {
-
-            $totalAmount   = $paymentAmount + $mealValue + $extraValue;
-
-            $paymentCreate = Payment::create([
-                'amount' => $totalAmount,
-                'student_id' => $input['user_id'],
-                'start_date' => $attendanceDate,
-                'end_date'   => $attendanceDate,
-            ]);
-
+        try {
+            $attendance = $billing->markAttendance(
+                (int) $input['user_id'], (int) $input['meal_id'], $input['date'] ?? today()->toDateString(), $extras
+            );
+        } catch (BillingException $e) {
+            return $this->rejected($request, $e->getMessage());
         }
 
-
-        return $this->backToList($request)->with('success', "$mealName marked for $studentName.");
+        return $this->backToList($request)
+            ->with('success', "{$attendance->meal->name} marked for {$attendance->user->full_name}.");
     }
 
     private function rejected(Request $request, string $message)
@@ -249,6 +136,13 @@ class StudentAttendanceController extends Controller
         ]));
     }
 
+    private function backToQuick(Request $request)
+    {
+        $meal = $request->input('meal_id');
+
+        return redirect()->route('attendance.quick', array_filter(['meal' => is_scalar($meal) ? MealPrice::active()->whereKey((int) $meal)->value('id') : null]));
+    }
+
     /**
      * Display the specified resource.
      */
@@ -257,7 +151,7 @@ class StudentAttendanceController extends Controller
         $student = User::withTrashed()->findOrFail($id);
         $filters = $this->listParams($request, ['date'], 'date', 'desc') + $this->dates($request);
 
-        $query = StudentAttendance::with('meal')->where('student_id', $id)
+        $query = StudentAttendance::with('meal', 'extras')->where('student_id', $id)
             ->whereBetween('date', [$filters['from'], $filters['to']])
             ->orderBy('date', $filters['dir'])->orderBy('id', $filters['dir']);
 
@@ -265,17 +159,22 @@ class StudentAttendanceController extends Controller
             $query->whereHas('meal', fn ($q) => $this->searchIn($q, ['name'], $filters['search']));
         }
 
+        $menuNames = Menus::pluck('name', 'id');
+
         return Inertia::render('Attendance/Show', [
             'student' => $student->only('id', 'name', 'middle_name', 'last_name', 'canteen_id'),
-            'canMark' => !$student->trashed(),
+            'canMark' => !$student->trashed() && $student->left_on === null,
             'rows' => $this->pageOf($query)->through(fn ($row) => [
                 'id' => $row->id,
                 'date' => $row->date,
                 'meal' => $row->meal->name ?? 'Removed meal',
                 'amount' => $row->amount,
                 'extra_amount' => $row->extra_amount,
+                'extras' => $row->extraItems($menuNames),
                 'is_paid' => $row->is_paid == 1,
             ]),
+            'guests' => GuestMeal::with('extras')->where('student_id', $id)->whereBetween('date', [$filters['from'], $filters['to']])
+                ->orderByDesc('date')->orderByDesc('id')->get()->map->row(),
             'filters' => $filters,
             'today' => today()->toDateString(),
         ]);
@@ -289,7 +188,7 @@ class StudentAttendanceController extends Controller
             'user_id' => ['required', 'integer', 'exists:users,id'],
         ]);
 
-        return $this->csv($request, StudentAttendance::where('student_id', $request->user_id), 'attendance_' . (int) $request->user_id);
+        return $this->csv($request, StudentAttendance::where('student_id', $request->user_id), GuestMeal::where('student_id', $request->user_id), 'attendance_' . (int) $request->user_id);
     }
 
     public function download(Request $request)
@@ -299,13 +198,14 @@ class StudentAttendanceController extends Controller
             'to' => ['required', 'date_format:Y-m-d'],
         ]);
 
-        return $this->csv($request, StudentAttendance::query(), 'attendance');
+        return $this->csv($request, StudentAttendance::query(), GuestMeal::query(), 'attendance');
     }
 
-    private function csv(Request $request, $query, string $name)
+    private function csv(Request $request, $query, $guests, string $name)
     {
         $attendances = $query->select(['id', 'student_id', 'meal_id', 'amount', 'extra_amount', 'extra_meal_id', 'date'])
             ->with([
+                'extras',
                 'user' => function ($query) {
                     $query->select(['id', 'name', 'middle_name', 'last_name', 'collage_name', 'canteen_id']);
                 },
@@ -316,13 +216,33 @@ class StudentAttendanceController extends Controller
             ->whereBetween('date', [$request->from, $request->to])
             ->get();
         $menuNames = Menus::pluck('name', 'id');
+        $guests = $guests->notCancelled()->with('student', 'extras')->whereBetween('date', [$request->from, $request->to])->orderBy('id')->get();
+
+        // A stable sort: own meals first, then the guests of the same date.
+        $rows = $attendances->map(fn ($attendance) => [
+            'name' => $attendance->user->full_name ?? 'N/A',
+            'canteen_id' => $attendance->user->canteen_id ?? 'N/A',
+            'date' => $attendance->date,
+            'meal' => $attendance->meal->name ?? 'N/A',
+            'amount' => $attendance->amount,
+            'extras' => $attendance->extraItems($menuNames),
+            'extra_amount' => $attendance->extra_amount,
+        ])->toBase()->concat($guests->map(fn ($guest) => [
+            'name' => $guest->isCard() ? $guest->student->full_name : 'Walk-in guest',
+            'canteen_id' => $guest->student->canteen_id ?? 'N/A',
+            'date' => $guest->date,
+            'meal' => "{$guest->meal_name} (guest x {$guest->plates})",
+            'amount' => $guest->plates * $guest->price,
+            'extras' => $guest->row()['extras'],
+            'extra_amount' => $guest->extra_amount,
+        ]))->sortBy('date');
 
         $headers = [
             'Content-Type' => 'text/csv',
             'Content-Disposition' => 'attachment; filename="' . $name . '_' . now()->format('Ymd') . '.csv"',
         ];
 
-        $callback = function () use ($attendances, $menuNames) {
+        $callback = function () use ($rows) {
             $file = fopen('php://output', 'w');
 
             // CSV Column headings
@@ -339,21 +259,21 @@ class StudentAttendanceController extends Controller
 
             $srNo = 1;
 
-            foreach ($attendances as $attendance) {
-                // Decode extra_meal_id JSON to array of IDs
-                $extraMealIds = json_decode($attendance->extra_meal_id ?? '', true) ?: [];
-                $extraItemsString = $menuNames->only($extraMealIds)->implode(', ') ?: 'None';
+            foreach ($rows as $row) {
+                $extraItemsString = implode(', ', array_map(
+                    fn ($item) => $item['name'] . ($item['quantity'] === null ? '' : " x {$item['quantity']}"), $row['extras']
+                )) ?: 'None';
 
                 // Write CSV row
                 fputcsv($file, [
                     $srNo,
-                    $attendance->user->full_name ?? 'N/A',
-                    $attendance->user->canteen_id ?? 'N/A',
-                    $attendance->date,
-                    $attendance->meal->name ?? 'N/A',
-                    number_format((float) $attendance->amount, 2),
-                    $extraItemsString,
-                    number_format((float) $attendance->extra_amount, 2),
+                    Csv::cell($row['name']),
+                    Csv::cell($row['canteen_id']),
+                    $row['date'],
+                    Csv::cell($row['meal']),
+                    number_format((float) $row['amount'], 2),
+                    Csv::cell($extraItemsString),
+                    number_format((float) $row['extra_amount'], 2),
                 ]);
 
                 $srNo++;
@@ -365,34 +285,28 @@ class StudentAttendanceController extends Controller
         return Response::stream($callback, 200, $headers);
     }
 
-    public function deleteSpecificAttedance(Request $request)
+    public function deleteSpecificAttedance(Request $request, BillingService $billing)
     {
-        $studentAttendance = StudentAttendance::with('meal')->find($request->integer('id'));
+        // A list would be read as entry 1.
+        $id = is_array($request->input('id')) ? 0 : $request->integer('id');
 
-        if (!$studentAttendance) {
-            return redirect()->route('student-attendance.index')->with('error', 'This attendance entry was already deleted.');
+        try {
+            $studentAttendance = $billing->deleteAttendance($id);
+        } catch (BillingException $e) {
+            if ($request->input('return_to') === 'quick') {
+                return $this->backToQuick($request)->with('error', $e->getMessage());
+            }
+            $entry = StudentAttendance::find($id);
+
+            return ($entry?->student_id
+                ? redirect()->route('student-attendance.show', ['id' => $entry->student_id] + $this->dates($request))
+                : redirect()->route('student-attendance.index'))->with('error', $e->getMessage());
         }
-
-        $totalAmount = (int)$studentAttendance->amount + (int)$studentAttendance->extra_amount;
-        $studentId = $studentAttendance->student_id;
-
-        $studentPaymentData = Payment::where('student_id', $studentId)->first();
-
-        if ($studentPaymentData) {
-            $newPaymentAmount = $studentPaymentData->amount - $totalAmount;
-
-            // Update payment amount
-            $studentPaymentData->update(['amount' => $newPaymentAmount]);
-        }
-
-        // Delete the attendance record
-        $studentAttendance->delete();
 
         $meal = $studentAttendance->meal->name ?? 'Removed meal';
         $date = Carbon::parse($studentAttendance->date)->format('j F Y');
-        $redirect = $studentId
-            ? redirect()->route('student-attendance.show', ['id' => $studentId] + $this->dates($request))
-            : redirect()->route('student-attendance.index');
+        $redirect = $request->input('return_to') === 'quick' ? $this->backToQuick($request)
+            : redirect()->route('student-attendance.show', ['id' => $studentAttendance->student_id] + $this->dates($request));
 
         return $redirect->with('success', "$meal on $date deleted.");
     }

@@ -4,6 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StudentRules;
+use App\Models\ActivityLog;
+use App\Models\GuestMeal;
 use App\Models\MealPrice;
 use App\Models\Payment;
 use App\Models\StudentAttendance;
@@ -12,42 +15,11 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class UserController extends Controller
 {
     use ListsRecords;
-
-    protected $messages = ['phone_number.regex' => 'Enter all 10 digits.'];
-
-    protected $attributes = ['name' => 'first name', 'collage_name' => 'college', 'canteen_id' => 'canteen ID', 'profile_pic' => 'photo'];
-
-    protected $validationRules = [
-        'name' => ['required', 'string', 'min:2', 'max:30'],
-        'middle_name' => ['nullable', 'string', 'min:2', 'max:30'],
-        'last_name' => ['nullable', 'string', 'min:2', 'max:30'],
-        'collage_name' => ['required', 'string', 'min:2', 'max:30'],
-        'email' => ['required', 'email', 'regex:/^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,4}$/', 'max:255', 'unique:users,email'],
-        'canteen_id' => ['required', 'string', 'min:1', 'max:10', 'unique:users,canteen_id'],
-        'phone_number' => ['required', 'regex:/^[0-9]{10}$/'],
-        'profile_pic' => ['nullable', 'file', 'max:2048', 'mimes:jpg,jpeg,png,gif']
-    ];
-
-    protected function updateValidationRules($userId)
-    {
-        return [
-            'name' => ['required', 'string', 'min:2', 'max:30'],
-            'middle_name' => ['nullable', 'string', 'min:2', 'max:30'],
-            'last_name' => ['nullable', 'string', 'min:2', 'max:30'],
-            'collage_name' => ['required', 'string', 'min:2', 'max:30'],
-            'email' => ['required', 'email', 'regex:/^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,4}$/', 'max:255', Rule::unique('users', 'email')->ignore($userId)],
-            'canteen_id' => ['required', 'string', 'min:1', 'max:10', Rule::unique('users', 'canteen_id')->ignore($userId)],
-            'phone_number' => ['required', 'regex:/^[0-9]{10}$/'],
-            'profile_pic' => ['nullable', 'file', 'max:2048', 'mimes:jpg,jpeg,png,gif'],
-        ];
-    }
 
     /**
      * Display a listing of the resource.
@@ -56,7 +28,15 @@ class UserController extends Controller
     {
         $filters = $this->listParams($request, ['name', 'canteen_id', 'collage_name'], 'name');
 
-        $query = User::where('role', 'user')->orderBy($filters['sort'], $filters['dir'])->orderBy('id');
+        $colleges = User::where('role', 'user')->whereNotNull('collage_name')->distinct()->orderBy('collage_name')->pluck('collage_name');
+        $college = $this->text($request, 'college');
+        $filters['college'] = $colleges->contains($college) ? $college : '';
+        $filters['status'] = $this->text($request, 'status') === 'left' ? 'left' : '';
+
+        $query = User::where('role', 'user')->whereNull('left_on', not: $filters['status'] === 'left')->orderBy($filters['sort'], $filters['dir'])->orderBy('id');
+        if ($filters['college'] !== '') {
+            $query->where('collage_name', $filters['college']);
+        }
         $this->searchIn($query, ['name', 'middle_name', 'last_name', 'email', 'canteen_id', 'collage_name'], $filters['search']);
 
         return Inertia::render('Students/Index', [
@@ -64,6 +44,7 @@ class UserController extends Controller
                 'id', 'name', 'middle_name', 'last_name', 'email', 'canteen_id', 'collage_name', 'profile_pic'
             )),
             'filters' => $filters,
+            'colleges' => $colleges,
         ]);
     }
 
@@ -81,13 +62,13 @@ class UserController extends Controller
     public function store(Request $request)
     {
 
-        $validator = Validator::make($request->all(), $this->validationRules, $this->messages, $this->attributes);
+        $validator = Validator::make($request->all(), StudentRules::rules(), StudentRules::messages(), StudentRules::attributes());
         if ($validator->fails()) {
             return redirect()->back()
                 ->withErrors($validator)      // Pass validation errors to the session
                 ->withInput($request->except('password'));  // Repopulate old input (except password)
         }
-        $input = $request->all();
+        $input = $validator->validated();
         $studentName = $request->input('name');
         $phoneNumber = $request->input('phone_number');
 
@@ -114,15 +95,16 @@ class UserController extends Controller
             // $fileName can now be stored in DB
         }
         $input['profile_pic'] =  $fileName;
-        $input['role'] =  "user";
 
-        $user = User::create($input);
+        $user = DB::transaction(function () use ($input) {
+            $user = (new User)->fill($input)->forceFill(['role' => 'user']);
+            $user->save();
+            ActivityLog::record('student.added', $user->id, "{$user->full_name} added");
 
-        if ($user) {
-            return redirect()->route('user.index')->with('success', Str::squish($user->full_name) . ' added.');
-        } else {
-            return redirect()->route('user.index')->with('error', 'Something went wrong please try again later!');
-        }
+            return $user;
+        });
+
+        return redirect()->route('user.index')->with('success', "{$user->full_name} added.");
     }
 
     /**
@@ -160,9 +142,12 @@ class UserController extends Controller
 
         return Inertia::render('Students/Show', [
             'student' => $userData->only(
-                'id', 'name', 'middle_name', 'last_name', 'email', 'phone_number', 'canteen_id', 'collage_name', 'profile_pic'
+                'id', 'name', 'middle_name', 'last_name', 'email', 'phone_number', 'canteen_id', 'collage_name', 'profile_pic', 'left_on'
             ),
+            'leaves' => $userData->leaves()->latest('from_date')->get(['id', 'from_date', 'to_date', 'reason']),
+            'today' => $todayDate,
             'meals' => $combined,
+            'guests' => (int) GuestMeal::notCancelled()->where('student_id', $id)->whereBetween('date', [$startMonthDate, $todayDate])->sum('plates'),
             'bill' => $bill?->only('amount', 'pending_amount', 'advance_amount'),
         ]);
     }
@@ -186,8 +171,7 @@ class UserController extends Controller
     {
         // Find the user or fail with 404
         $user = User::findOrFail($id);
-        $rules = $this->updateValidationRules($id);
-        $validator = Validator::make($request->all(), $rules, $this->messages, $this->attributes);
+        $validator = Validator::make($request->all(), StudentRules::rules($user->id), StudentRules::messages(), StudentRules::attributes());
 
         if ($validator->fails()) {
             return redirect()->back()
@@ -195,7 +179,7 @@ class UserController extends Controller
                 ->withInput($request->except('password'));
         }
 
-        $input = $request->all();
+        $input = $validator->validated();
 
         $studentName = $request->input('name');
         $phoneNumber = $request->input('phone_number');
@@ -213,28 +197,34 @@ class UserController extends Controller
             // Move uploaded file to public/image/profile
             $file->move($destinationPath, $fileName);
 
-            // Delete old image file if it exists and the filename is different
-            if ($user->profile_pic && $user->profile_pic !== $fileName) {
-                $oldFilePath = public_path('image/profile/' . $user->profile_pic);
-                if (file_exists($oldFilePath)) {
-                    unlink($oldFilePath);
-                }
-            }
-
             $input['profile_pic'] = $fileName;
         } else {
             // Keep old profile_pic if no new file uploaded
             $input['profile_pic'] = $user->profile_pic;
         }
 
-        // Update user with new input
-        $updated = $user->update($input);
+        $oldPhoto = $user->profile_pic;
+        $name = $user->full_name;
+        DB::transaction(function () use ($user, $input, $name, $request) {
+            $user->fill($input);
+            $labels = ['name' => 'first name', 'middle_name' => 'middle name', 'last_name' => 'last name', 'collage_name' => 'college',
+                'email' => 'email', 'canteen_id' => 'canteen ID', 'phone_number' => 'phone number', 'profile_pic' => 'photo'];
+            $changed = array_intersect_key($labels, $user->getDirty());
+            if ($request->hasFile('profile_pic')) {
+                $changed['profile_pic'] = 'photo';
+            }
+            $user->save();
+            if ($changed) {
+                ActivityLog::record('student.changed', $user->id, "$name changed: " . implode(', ', $changed));
+            }
+        });
 
-        if ($updated) {
-            return redirect()->route('user.index')->with('success', 'Changes to ' . Str::squish($user->full_name) . ' saved.');
-        } else {
-            return redirect()->back()->with('error', 'Failed to update user, please try again.');
+        // Only after the change is saved.
+        if ($oldPhoto && $oldPhoto !== $user->profile_pic && file_exists(public_path('image/profile/' . $oldPhoto))) {
+            unlink(public_path('image/profile/' . $oldPhoto));
         }
+
+        return redirect()->route('user.index')->with('success', "Changes to {$user->full_name} saved.");
     }
 
 
@@ -244,8 +234,31 @@ class UserController extends Controller
     public function destroy(string $id)
     {
         $user = User::findOrFail($id);
-        $user->delete(); // Soft delete
+        DB::transaction(function () use ($user) {
+            $user->delete(); // Soft delete
+            ActivityLog::record('student.deleted', $user->id, "{$user->full_name} deleted");
+        });
 
-        return redirect()->route('user.index')->with('success', Str::squish($user->full_name) . ' deleted.');
+        return redirect()->route('user.index')->with('success', "{$user->full_name} deleted.");
+    }
+
+    public function status(Request $request, string $user)
+    {
+        $student = User::where('role', 'user')->findOrFail($user);
+        $left = $request->validate(['status' => ['bail', 'required', 'string', 'in:left,active']])['status'] === 'left';
+
+        DB::transaction(function () use ($student, $left) {
+            // The same lock as money writes, so a bulk save cannot pass it.
+            $locked = User::whereKey($student->id)->lockForUpdate()->firstOrFail();
+            if (($locked->left_on !== null) === $left) {
+                return;
+            }
+            $locked->forceFill(['left_on' => $left ? today()->toDateString() : null])->save();
+            ActivityLog::record($left ? 'student.left' : 'student.returned', $locked->id,
+                $locked->full_name . ($left ? ' marked as left' : ' marked as active'));
+        });
+
+        return redirect()->route('user.show', $student->id)
+            ->with('success', $student->full_name . ($left ? ' marked as left.' : ' marked as active.'));
     }
 }

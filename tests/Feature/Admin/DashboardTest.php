@@ -27,12 +27,12 @@ test('home numbers', function () {
 
     foreach ([0 => 2, 6 => 1, 7 => 1] as $daysAgo => $count) {
         foreach (range(1, $count) as $n) {
-            StudentAttendance::create(['student_id' => $due->id, 'meal_id' => $lunch->id, 'amount' => 70, 'date' => today()->subDays($daysAgo)->toDateString()]);
+            StudentAttendance::create(['student_id' => $n === 1 ? $due->id : $advance->id, 'meal_id' => $lunch->id, 'amount' => 70, 'date' => today()->subDays($daysAgo)->toDateString()]);
         }
     }
 
     $this->get('/dashboard')->assertInertia(fn (Assert $page) => $page
-        ->where('meals.0', ['id' => $lunch->id, 'name' => 'Lunch', 'total' => 2])->where('meals.1.total', 0)
+        ->where('meals.0', ['id' => $lunch->id, 'name' => 'Lunch', 'total' => 2, 'guests' => 0])->where('meals.1.total', 0)
         ->where('students', 3)
         ->where('due', ['total' => 150, 'students' => 1])
         ->where('week.0.total', 1)->where('week.0.date', today()->subDays(6)->toDateString())

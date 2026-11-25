@@ -5,6 +5,7 @@ import { ClipboardCheck, Download, Trash2 } from '@lucide/vue';
 import AppButton from '../../Components/AppButton.vue';
 import ConfirmDialog from '../../Components/ConfirmDialog.vue';
 import DataList from '../../Components/DataList.vue';
+import GuestRows from '../../Components/GuestRows.vue';
 import DateRange from '../../Components/DateRange.vue';
 import StatusTag from '../../Components/StatusTag.vue';
 import AdminLayout from '../../Layouts/AdminLayout.vue';
@@ -14,6 +15,7 @@ const props = defineProps({
     student: { type: Object, required: true },
     canMark: Boolean,
     rows: { type: Object, required: true },
+    guests: { type: Array, required: true },
     filters: { type: Object, required: true },
     today: { type: String, required: true },
 });
@@ -89,7 +91,13 @@ const remove = () => router.post('/student-attendance/delete', { id: chosen.valu
             <template #empty>No attendance in these dates.</template>
             <template #cell-date="{ row }"><b>{{ shortDate(row.date) }}</b></template>
             <template #cell-amount="{ row }">{{ money(row.amount) }}</template>
-            <template #cell-extra_amount="{ row }">{{ Number(row.extra_amount) ? money(row.extra_amount) : 'None' }}</template>
+            <template #cell-extra_amount="{ row }">
+                <ul v-if="row.extras.length">
+                    <li v-for="(extra, index) in row.extras" :key="index">{{ extra.name }}<template v-if="extra.quantity !== null"> × {{ extra.quantity }} ({{ money(extra.total) }})</template></li>
+                    <li v-if="row.extras[0].quantity === null">{{ money(row.extra_amount) }}</li>
+                </ul>
+                <template v-else>{{ Number(row.extra_amount) ? money(row.extra_amount) : 'None' }}</template>
+            </template>
             <template #cell-is_paid="{ row }">
                 <StatusTag :kind="row.is_paid ? 'ok' : 'due'">{{ row.is_paid ? 'Paid' : 'Not paid' }}</StatusTag>
             </template>
@@ -97,6 +105,10 @@ const remove = () => router.post('/student-attendance/delete', { id: chosen.valu
                 <AppButton v-if="!row.is_paid" variant="danger" :icon="Trash2" @click="ask(row)">Delete<span class="sr-only"> {{ row.meal }} on {{ shortDate(row.date) }}</span></AppButton>
             </template>
         </DataList>
+        <section v-if="guests.length" class="panel guestlist">
+            <h2>Guest plates</h2>
+            <GuestRows :rows="guests" :back="{ return_to: 'history', from: filters.from, to: filters.to }" dates />
+        </section>
         <ConfirmDialog
             ref="dialog" :title="chosen ? `Delete ${chosen.meal} on ${shortDate(chosen.date)}?` : ''"
             :text="chosen ? `${money(Number(chosen.amount) + Number(chosen.extra_amount))} will be taken off the bill of ${displayName(student)}.` : ''"
@@ -106,6 +118,7 @@ const remove = () => router.post('/student-attendance/delete', { id: chosen.valu
 </template>
 
 <style scoped>
+.guestlist { margin-top: 1.2rem; }
 .dates { margin-bottom: 1.2rem; }
 .dates .filters { margin-bottom: 0; }
 .dates .btn[aria-pressed="true"] { background: var(--color-navy-900); border-color: var(--color-navy-900); color: #fff; }

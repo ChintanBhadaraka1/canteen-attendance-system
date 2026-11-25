@@ -28,7 +28,6 @@ class User extends Authenticatable
         'canteen_id',
         'phone_number',
         'profile_pic',
-        'role'
     ];
     protected $dates = ['deleted_at'];
     protected $appends = ['full_name'];
@@ -62,9 +61,26 @@ class User extends Authenticatable
         return $this->role === 'admin';
     }
 
+    public function leaves()
+    {
+        return $this->hasMany(StudentLeave::class, 'student_id');
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('role', 'user')->whereNull('left_on');
+    }
+
+    public function isAwayOn(string $date): bool
+    {
+        return $this->leaves()->during($date)->exists();
+    }
+
     public function getFullNameAttribute()
     {
-        // Combine name parts and trim extra spaces
-        return trim("{$this->name} {$this->middle_name} {$this->last_name}");
+        return implode(' ', array_filter(
+            array_map(fn ($part) => trim($part ?? ''), [$this->name, $this->middle_name, $this->last_name]),
+            fn ($part) => $part !== ''
+        ));
     }
 }

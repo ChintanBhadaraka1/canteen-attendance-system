@@ -37,7 +37,7 @@ const text = (balance) =>
                 </FormField>
             </template>
             <template #cell-name="{ row }">
-                <div class="who"><Avatar :name="row.name" :photo="row.profile_pic" /><b>{{ displayName(row) }}</b></div>
+                <div class="who"><Avatar :name="row.name" :photo="row.profile_pic" /><b>{{ displayName(row) }}</b><StatusTag v-if="row.left" kind="due">Left</StatusTag></div>
             </template>
             <template #cell-balance="{ row }">
                 <StatusTag :kind="row.balance > 0 ? 'due' : 'ok'">{{ text(row.balance) }}</StatusTag>

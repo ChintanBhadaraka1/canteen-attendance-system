@@ -72,7 +72,7 @@ test('meal prices list and forms', function () {
     $lunch = MealPrice::create(['name' => 'Lunch', 'slug' => 'lunch', 'price' => 70]);
 
     $this->get('/meal-price')->assertInertia(fn (Assert $page) => $page
-        ->component('MealPrices/Index')->where('meals', [['id' => $lunch->id, 'name' => 'Lunch', 'price' => '70']]));
+        ->component('MealPrices/Index')->has('meals', 1)->where('meals.0.id', $lunch->id)->where('meals.0.name', 'Lunch')->where('meals.0.price', '70'));
     $this->get('/meal-price/create')->assertInertia(fn (Assert $page) => $page->component('MealPrices/Form')->where('meal', null));
     $this->get("/meal-price/{$lunch->id}/edit")->assertInertia(fn (Assert $page) => $page->component('MealPrices/Form')->where('meal.price', '70'));
     $this->get("/meal-price/{$lunch->id}")->assertMethodNotAllowed();

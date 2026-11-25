@@ -2,18 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\BillingException;
 use App\Models\Payment;
 use App\Http\Controllers\Concerns\ListsRecords;
 use App\Http\Controllers\Controller;
+use App\Models\GuestMeal;
 use App\Models\MealPrice;
 use App\Models\PaymentHistory;
 use App\Models\StudentAttendance;
 use App\Models\User;
+use App\Services\BillingService;
 use Illuminate\Http\Request;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 
@@ -26,7 +28,8 @@ class PaymentController extends Controller
      * Display a listing of the resource.
      */
     protected $validationRules =[
-        'amount' => ['required','numeric'],
+        'amount' => ['bail', 'required', 'integer', 'between:1,1000000'],
+        'due' => ['required', 'integer'],
         'type' =>  ['required', 'in:cash,upi'],
         'month' => ['required','in:January,February,March,April,May,June,July,August,September,October,November,December'],
     ];
@@ -38,7 +41,7 @@ class PaymentController extends Controller
 
         $query = Payment::join('users', 'users.id', '=', 'payments.student_id')->select(
             'payments.id', 'payments.student_id', 'payments.amount', 'payments.pending_amount', 'payments.advance_amount',
-            'users.name', 'users.middle_name', 'users.last_name', 'users.canteen_id', 'users.profile_pic'
+            'users.name', 'users.middle_name', 'users.last_name', 'users.canteen_id', 'users.profile_pic', 'users.left_on'
         );
         $this->searchIn($query, ['users.name', 'users.middle_name', 'users.last_name', 'users.canteen_id'], $filters['search']);
 
@@ -53,7 +56,7 @@ class PaymentController extends Controller
         return Inertia::render('Bills/Index', [
             'bills' => $this->pageOf($query)->through(fn ($bill) => $bill->only(
                 'id', 'student_id', 'name', 'middle_name', 'last_name', 'canteen_id', 'profile_pic', 'balance'
-            )),
+            ) + ['left' => $bill->left_on !== null]),
             'filters' => $filters,
         ]);
     }
@@ -69,11 +72,17 @@ class PaymentController extends Controller
             return redirect()->route('bill.index')->with('error', 'There is no bill for this student yet.');
         }
 
+        $guests = (int) GuestMeal::where('student_id', $id)->where('is_paid', '0')->notCancelled()->sum('amount');
+
         return Inertia::render('Bills/Edit', [
             'student' => $payment->user->only('id', 'name', 'middle_name', 'last_name', 'canteen_id', 'collage_name', 'profile_pic'),
-            'bill' => $payment->only('id', 'amount', 'pending_amount', 'advance_amount') + ['due' => $payment->balance],
+            'bill' => $payment->only('id', 'amount', 'pending_amount', 'advance_amount') + ['due' => $payment->balance, 'own' => $payment->amount - $guests, 'guests' => $guests],
             'receipts' => PaymentHistory::where('student_id', $id)->orderByDesc('payment_date')->orderByDesc('id')
-                ->get(['id', 'payment_date', 'month_name']),
+                ->get()->map(fn ($row) => $row->only('id', 'payment_date', 'month_name', 'cancel_reason') + [
+                    'amount' => $row->before_amount === null ? null : $row->amount,
+                    'cancelled_on' => $row->cancelled_at?->toDateString(),
+                    'cancellable' => $row->isCancellable(),
+                ]),
             'month' => now()->format('F'),
         ]);
     }
@@ -81,98 +90,37 @@ class PaymentController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Payment $payment)
+    public function update(Request $request, BillingService $billing, string $bill)
     {
-        
-        $validator = Validator::make($request->all(),$this->validationRules);
-            
-        if ($validator->fails()) {
-            return redirect()->back()->withErrors($validator)->withInput();
-        }
-        // now take amount and minus from current payement amount of that user.
+        $studentId = Payment::findOrFail($bill)->student_id;
+        $input = $request->validate($this->validationRules);
 
-        $payementType = $request->type;
-        $paymentMonth = $request->month;
-        $paymentDate = Carbon::now()->format('Y-m-d');
-        $studentId = $request->student_id;
-
-
-        $payment = Payment::where('student_id', $studentId)->firstOrFail();
-
-        $paymentAmount = $payment->amount ?? 0;
-        $pendingAmount = $payment->pending_amount ?? 0;
-        $advanceAmount = $payment->advance_amount ?? 0;
-
-        $paymentStartDate = Carbon::parse($payment->start_date)->format('Y-m-d');
-        $paymentEndDate = Carbon::parse($payment->end_date)->format('Y-m-d');
-
-        $newAdvanceAmount = 0;
-        $newPendingAmount = 0;
-        $totalAmountPaidByStudent = 0;
-
-        $totalAmount = ($paymentAmount + $pendingAmount) - $advanceAmount;
-
-        $currentPayableAmount = $totalAmount - $request->amount;
-
-        $totalAmountPaidByStudent = $request->amount + $pendingAmount;
-
-        if ($currentPayableAmount < 0) {
-            $newAdvanceAmount = abs($currentPayableAmount);
-        } else {
-            $newPendingAmount = abs($currentPayableAmount);
-        }
-                   
-        if ($newPendingAmount > 0 || $newAdvanceAmount > 0) {
-
-            StudentAttendance::where('student_id',$studentId)
-                                ->where('date', '>=', $paymentStartDate)
-                                ->where('date', '<=', $paymentEndDate)
-                                ->update(['is_paid'=>1]);
-          
-            $payment->update([
-                'amount' => 0,
-                'pending_amount' => $newPendingAmount,
-                'advance_amount' => $newAdvanceAmount,
-                'start_date' => $paymentDate,
-                'end_date'   => $paymentDate,
-            ]);
-
-            // create a new payement history 
-            $payementHistory = PaymentHistory::create([
-                'student_id'    => $request->student_id,
-                'amount'        => $totalAmountPaidByStudent,
-                'payment_date'  => $paymentDate,
-                'type'          => $payementType,
-                'month_name'    => $paymentMonth
-            ]);
-
-        } else {
-
-            StudentAttendance::where('student_id',$studentId)
-                                ->whereDate('date', '>=', $paymentStartDate)
-                                ->whereDate('date', '<=', $paymentEndDate)
-                                ->update(['is_paid'=>1]);
-
-            $payementHistory = PaymentHistory::create([
-                'student_id'    => $request->student_id,
-                'amount'        => $totalAmountPaidByStudent,
-                'payment_date'  => $paymentDate,
-                'type'          => $payementType,
-                'month_name'    => $paymentMonth
-            ]);
-
-
-            $payment->update([
-                'amount' => 0,
-                'pending_amount' => 0,
-                'advance_amount' => 0,
-                'start_date' => $paymentDate,
-                'end_date'   => $paymentDate,
-            ]);
+        try {
+            $payment = $billing->takePayment((int) $bill, (int) $input['amount'], $input['type'], $input['month'], (int) $input['due']);
+        } catch (BillingException $e) {
+            return redirect()->route('bill.edit', $studentId)->with('error', $e->getMessage());
         }
 
+        return redirect()->route('bill.index')
+            ->with('success', "₹{$payment->amount} saved for " . User::withTrashed()->find($studentId)->full_name . '.');
+    }
 
-        return redirect()->route('bill.index')->with('success', '₹' . $request->amount . ' saved for ' . Str::squish($payment->user?->full_name ?? '') . '.');
+    public function cancel(Request $request, BillingService $billing, string $history)
+    {
+        $payment = PaymentHistory::findOrFail($history);
+        $input = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:200']]);
+
+        try {
+            $billing->cancelPayment($payment->id, $input['reason']);
+        } catch (BillingException $e) {
+            return back()->withErrors(['reason' => $e->getMessage()]);
+        }
+
+        $due = Payment::where('student_id', $payment->student_id)->sole()->balance;
+        $now = $due > 0 ? "₹$due is now due." : ($due < 0 ? '₹' . -$due . ' is kept as advance.' : 'Nothing is due.');
+
+        return redirect()->route('bill.edit', $payment->student_id)
+            ->with('success', "Payment of ₹{$payment->amount} cancelled. $now");
     }
 
     public function downloadReceipt(string $paymentId)
@@ -183,7 +131,7 @@ class PaymentController extends Controller
         $paymentMode    = $paymentHistory->type;
         $paymentDate    = $paymentHistory->payment_date;
         $paymentMonth   = $paymentHistory->month_name;
-        $paidAmount     = $paymentHistory->amount;
+        $paidAmount     = $paymentHistory->before_amount === null ? null : $paymentHistory->amount;
 
         $userDetails = User::withTrashed()->findOrFail($studentId);
         
@@ -212,8 +160,11 @@ class PaymentController extends Controller
             ];
         });
 
+        $data['payment']          = $paymentHistory;
         $data['user_data']        = $userDetails;
         $data['attedance_counts'] = $combined;
+        $data['guest_plates']     = (int) GuestMeal::where('student_id', $studentId)->notCancelled()
+            ->whereBetween('date', [$filterDates['start_date'], $filterDates['end_date']])->sum('plates');
         $data['payment_month']    = $paymentMonth;
         $data['payment_date']     = $paymentDate;
         $data['payment_mode']     = Str::upper($paymentMode);

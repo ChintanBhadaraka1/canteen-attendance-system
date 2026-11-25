@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\MenuCalendar;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
@@ -71,7 +72,8 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'max:72', 'confirmed'],
         ], attributes: ['collage_name' => 'college']);
 
-        $user = User::create(['role' => 'user'] + $data);
+        $user = (new User)->fill($data)->forceFill(['role' => 'user']);
+        $user->save();
 
         Auth::login($user);
         $request->session()->regenerate();
@@ -95,6 +97,7 @@ class AuthController extends Controller
                 'collage_name' => $user->collage_name,
                 'canteen_id' => $user->canteen_id,
             ],
+            'menu' => MenuCalendar::forStudents(today()->toDateString(), today()->addDays(6)->toDateString()),
         ]);
     }
 

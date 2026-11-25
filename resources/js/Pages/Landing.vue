@@ -1,9 +1,13 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
 import MealCoupon from '../Components/MealCoupon.vue';
+import StudentMenu from '../Components/StudentMenu.vue';
 import PublicLayout from '../Layouts/PublicLayout.vue';
 
-defineProps({ meals: { type: Array, required: true } });
+defineProps({
+    meals: { type: Array, required: true },
+    menu: { type: Array, required: true },
+});
 </script>
 
 <template>
@@ -17,6 +21,10 @@ defineProps({ meals: { type: Array, required: true } });
                     <MealCoupon :meals="meals" />
                     <p class="hint">Punch a meal to see the bill change.</p>
                 </template>
+            </section>
+            <section v-if="menu.length" class="wrap todays">
+                <h2>Today's menu</h2>
+                <StudentMenu :meals="menu" />
             </section>
             <section class="flow">
                 <div class="wrap">
@@ -65,6 +73,8 @@ defineProps({ meals: { type: Array, required: true } });
 }
 .lead { max-width: 46ch; color: var(--color-navy-text); margin: 20px 0 40px; font-size: 1.2rem; }
 .hint { margin-top: 16px; color: var(--color-navy-text); }
+.todays { padding-bottom: 84px; }
+.todays h2 { font-weight: 750; font-stretch: 80%; font-size: clamp(2rem, 4vw, 3.1rem); margin-bottom: 24px; }
 .flow { background: #f4f7fc; color: var(--color-ink); padding-block: 84px; }
 .flow h2, .who h2 {
     font-weight: 750;

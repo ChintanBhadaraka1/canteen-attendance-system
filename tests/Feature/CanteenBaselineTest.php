@@ -10,7 +10,7 @@ use App\Models\User;
 beforeEach(function () {
     $this->seed();
     $this->admin = User::where('role', 'admin')->firstOrFail();
-    $this->student = User::create([
+    $this->student = User::factory()->create([
         'name' => 'Asha', 'middle_name' => 'Raj', 'last_name' => 'Patel', 'email' => 'asha@example.com',
         'collage_name' => 'Test College', 'canteen_id' => 'C1', 'phone_number' => '9999999999', 'role' => 'user',
     ]);
@@ -30,7 +30,7 @@ function pay($test, $amount)
     $payment = Payment::where('student_id', $test->student->id)->firstOrFail();
 
     return $test->actingAs($test->admin)->put("/bill/{$payment->id}", [
-        'student_id' => $test->student->id, 'amount' => $amount, 'type' => 'cash', 'month' => 'January',
+        'amount' => $amount, 'type' => 'cash', 'month' => 'January', 'due' => $payment->balance,
     ]);
 }
 
@@ -65,8 +65,8 @@ test('every screen renders', function () {
 });
 
 test('attendance adds meal and extras to the balance', function () {
-    Menus::create(['name' => 'Curd', 'slug' => 'curd', 'is_extra' => '1', 'price' => 15]);
-    mark($this, ['include_extra' => 'yes', 'extra_items' => ['curd' => 2]]);
+    $curd = Menus::create(['name' => 'Curd', 'slug' => 'curd', 'is_extra' => '1', 'price' => 15]);
+    mark($this, ['include_extra' => 'yes', 'extra_items' => [$curd->id => 2]]);
 
     expect(StudentAttendance::sole())->amount->toEqual(70)->extra_amount->toEqual(30);
     expect(Payment::sole()->amount)->toEqual(100);

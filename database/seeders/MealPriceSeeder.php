@@ -36,7 +36,7 @@ class MealPriceSeeder extends Seeder
 
         foreach ($mealPriceData as  $meal) {
             
-            MealPrice::create($meal);
+            MealPrice::firstOrCreate(['slug' => $meal['slug']], $meal);
         }
 
         

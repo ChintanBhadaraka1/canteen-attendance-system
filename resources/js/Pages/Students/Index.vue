@@ -1,17 +1,19 @@
 <script setup>
 import { ref } from 'vue';
 import { router } from '@inertiajs/vue3';
-import { Eye, Pencil, Trash2, UserPlus } from '@lucide/vue';
+import { Eye, FileUp, Pencil, Trash2, UserPlus } from '@lucide/vue';
 import AppButton from '../../Components/AppButton.vue';
 import Avatar from '../../Components/Avatar.vue';
 import ConfirmDialog from '../../Components/ConfirmDialog.vue';
 import DataList from '../../Components/DataList.vue';
+import FormField from '../../Components/FormField.vue';
 import AdminLayout from '../../Layouts/AdminLayout.vue';
 import { displayName } from '../../format';
 
 defineProps({
     students: { type: Object, required: true },
     filters: { type: Object, required: true },
+    colleges: { type: Array, required: true },
 });
 
 const columns = [
@@ -39,11 +41,21 @@ const remove = () => router.delete(`/user/${chosen.value.id}`, {
 
 <template>
     <AdminLayout title="Students">
-        <template #actions><AppButton :icon="UserPlus" href="/user/create">Add student</AppButton></template>
+        <template #actions><AppButton variant="plain" :icon="FileUp" href="/user/import">Import students</AppButton><AppButton :icon="UserPlus" href="/user/create">Add student</AppButton></template>
         <DataList
             :columns="columns" :rows="students" :filters="filters" noun="student"
             search-label="Find a student" search-hint="Name, email, canteen ID or college"
         >
+            <template #filters="{ visit }">
+                <FormField id="college" as="select" label="College" :model-value="filters.college" @update:model-value="(college) => visit({ college })">
+                    <option value="">All colleges</option>
+                    <option v-for="name in colleges" :key="name">{{ name }}</option>
+                </FormField>
+                <FormField id="status" as="select" label="Show" :model-value="filters.status" @update:model-value="(status) => visit({ status })">
+                    <option value="">Active</option>
+                    <option value="left">Left</option>
+                </FormField>
+            </template>
             <template #cell-name="{ row }">
                 <div class="who">
                     <Avatar :name="row.name" :photo="row.profile_pic" />

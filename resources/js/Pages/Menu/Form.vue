@@ -7,12 +7,19 @@ import PhotoField from '../../Components/PhotoField.vue';
 import AdminLayout from '../../Layouts/AdminLayout.vue';
 import { focusFirstError } from '../../forms';
 
-const props = defineProps({ item: { type: Object, default: null } });
+const props = defineProps({
+    item: { type: Object, default: null },
+    options: { type: Object, required: true },
+});
 
 const form = useForm({
     name: props.item?.name ?? '',
     is_extra: props.item?.is_extra ?? false,
     price: props.item?.price ?? '',
+    food_type_id: props.item?.food_type_id ?? '',
+    category_id: props.item?.category_id ?? '',
+    description: props.item?.description ?? '',
+    available: props.item?.available ?? true,
     images: null,
 });
 
@@ -20,7 +27,7 @@ const form = useForm({
 function save() {
     form.transform(({ is_extra, price, ...data }) => ({
         ...data,
-        price: is_extra ? price : props.item?.price ?? '',
+        price: is_extra || form.errors.price ? price : props.item?.price ?? '',
         ...(is_extra && { is_extra: 'on' }),
         ...(props.item && { _method: 'put' }),
     })).post(props.item ? `/menus/${props.item.id}` : '/menus', { forceFormData: true, onError: focusFirstError });
@@ -35,10 +42,20 @@ function save() {
                 id="images" v-model="form.images" label="Photo (optional)" :error="form.errors.images"
                 :current="item?.images ? `/image/menus/${encodeURIComponent(item.images)}` : null"
             />
+            <FormField id="food_type_id" v-model="form.food_type_id" as="select" label="Food type" :error="form.errors.food_type_id">
+                <option value="">Not set</option>
+                <option v-for="option in options.food_type" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </FormField>
+            <FormField id="category_id" v-model="form.category_id" as="select" label="Category" :error="form.errors.category_id">
+                <option value="">Not set</option>
+                <option v-for="option in options.category" :key="option.id" :value="option.id">{{ option.name }}</option>
+            </FormField>
+            <div class="full"><FormField id="description" v-model="form.description" label="Description (optional)" maxlength="200" autocomplete="off" :error="form.errors.description" /></div>
+            <label class="check full"><input v-model="form.available" type="checkbox"> Available</label>
             <label class="check full"><input v-model="form.is_extra" type="checkbox"> This is an extra item</label>
             <FormField
-                v-if="form.is_extra" id="price" v-model="form.price" label="Price (₹)" type="number" inputmode="decimal" min="0"
-                :error="form.errors.price" help="Added to the student's bill when they take this item."
+                v-if="form.is_extra || form.errors.price" id="price" v-model="form.price" label="Price (₹)" type="number" inputmode="numeric" min="0" max="100000" step="1"
+                :error="form.errors.price" help="Whole rupees. Added to the student's bill when they take this item."
             />
             <div class="full acts start">
                 <AppButton type="submit" :icon="Save" :disabled="form.processing">{{ item ? 'Save changes' : 'Save item' }}</AppButton>
@@ -47,8 +64,3 @@ function save() {
         </form>
     </AdminLayout>
 </template>
-
-<style scoped>
-.check { display: flex; align-items: center; gap: .8rem; min-height: 3.1rem; font-weight: 600; cursor: pointer; }
-.check input { width: 1.6rem; height: 1.6rem; accent-color: var(--color-primary); flex: none; }
-</style>

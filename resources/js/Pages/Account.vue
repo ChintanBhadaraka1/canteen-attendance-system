@@ -1,12 +1,19 @@
 <script setup>
+import { computed } from 'vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import AuthTicket from '../Components/AuthTicket.vue';
 import MealCard from '../Components/MealCard.vue';
+import StudentMenu from '../Components/StudentMenu.vue';
 import PublicLayout from '../Layouts/PublicLayout.vue';
+import { longDate } from '../format';
 
-defineProps({ student: { type: Object, required: true } });
+const props = defineProps({
+    student: { type: Object, required: true },
+    menu: { type: Array, required: true },
+});
 
 const form = useForm({});
+const planned = computed(() => props.menu.filter((day) => day.meals.length));
 </script>
 
 <template>
@@ -23,5 +30,19 @@ const form = useForm({});
                 <button class="btn blue" type="submit" :disabled="form.processing">Sign out</button>
             </form>
         </AuthTicket>
+        <section v-if="planned.length" class="wrap week">
+            <h2>Menu of the next 7 days</h2>
+            <div v-for="day in planned" :key="day.date" class="day">
+                <h3>{{ longDate(day.date) }}</h3>
+                <StudentMenu :meals="day.meals" />
+            </div>
+        </section>
     </PublicLayout>
 </template>
+
+<style scoped>
+.week { padding-bottom: 56px; }
+.week h2 { font-weight: 750; font-stretch: 80%; font-size: 2.2rem; line-height: 1.1; }
+.day { margin-top: 28px; }
+.day > h3 { font-weight: 700; font-size: 1.4rem; margin-bottom: 12px; color: var(--color-turmeric); }
+</style>

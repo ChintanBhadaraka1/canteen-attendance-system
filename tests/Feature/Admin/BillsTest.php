@@ -24,7 +24,7 @@ function payBill($test, array $data = [])
 {
     $bill = makeBill($test->asha, 100);
 
-    return $test->put("/bill/{$bill->id}", $data + ['student_id' => $test->asha->id, 'amount' => 50, 'type' => 'cash', 'month' => 'January']);
+    return $test->put("/bill/{$bill->id}", $data + ['amount' => 50, 'type' => 'cash', 'month' => 'January', 'due' => 100]);
 }
 
 test('bills list, filter, search and sort', function () {
@@ -64,7 +64,7 @@ test('pay page', function () {
         ->component('Bills/Edit')
         ->where('bill.amount', 100)->where('bill.pending_amount', 50)->where('bill.advance_amount', 20)->where('bill.due', 130)
         ->where('student.name', 'Asha')
-        ->where('receipts.0.month_name', 'February')->missing('receipts.0.amount')
+        ->where('receipts.0.month_name', 'February')->where('receipts.0.amount', null)
         ->where('month', today()->format('F')));
 });
 

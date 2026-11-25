@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\AppSetting;
 use Closure;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -54,10 +55,14 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => ['user' => $request->user()?->only('name', 'role')],
+            'modules' => fn () => $request->user()?->isAdmin() ? AppSetting::modules() : null,
             'today' => today()->toDateString(),
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error' => $request->session()->get('error'),
+                'marked' => $request->session()->get('marked'),
+                'bulk' => $request->session()->get('bulk'),
+                'already' => $request->session()->get('already'),
             ],
         ];
     }
