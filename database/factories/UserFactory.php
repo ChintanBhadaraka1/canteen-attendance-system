@@ -32,7 +32,7 @@ class UserFactory extends Factory
             'middle_name' => $this->faker->firstName(),
             'last_name' => $this->faker->lastName(),
             'collage_name' => $this->faker->company(),
-            'canteen_id' => $this->faker->numerify('#####'),
+            'canteen_id' => $this->faker->unique()->numerify('#####'),
             'phone_number' => $this->faker->numerify('###########'),
             'profile_pic' => $this->faker->imageUrl(),
             'role' => $this->faker->randomElement(['user', 'admin']),
@@ -46,6 +46,17 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    // A student the app's own forms would accept.
+    public function student(): static
+    {
+        return $this->state(fn () => [
+            'role' => 'user',
+            'collage_name' => $this->faker->lexify('College ????'),
+            'phone_number' => $this->faker->numerify('98########'),
+            'profile_pic' => null,
         ]);
     }
 }
